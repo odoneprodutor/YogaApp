@@ -1,30 +1,47 @@
-
-
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { UserPreferences, SessionRecord, TrainingPlan, PlanDay, Memory } from '../types';
 import { createPersonalizedPlan } from '../services/planEngine';
 import { Calendar } from './Calendar';
 import { Card, Badge, Button } from './ui';
-import { Calendar as CalendarIcon, Target, Trophy, Clock, Check, Edit3, Repeat, Coffee, Zap, X, Activity, Play, CheckCircle, Lightbulb, Info, Trash2, CalendarRange } from 'lucide-react';
+import { Calendar as CalendarIcon, Target, Trophy, Clock, Check, Edit3, Repeat, Coffee, Zap, X, Activity, Play, CheckCircle, Lightbulb, Info, Trash2, CalendarRange, List, Plus, Flame, Heart, Droplets, wind, Mountain } from 'lucide-react';
 
 interface JourneyProps {
   preferences: UserPreferences;
   history: SessionRecord[];
-  customPlan: TrainingPlan | null; // Receive the custom plan
+  customPlan: TrainingPlan | null; // Currently active plan
+  plans?: TrainingPlan[]; // All available plans (optional for backward compatibility)
+  activePlanId?: string | null;
+  onSwitchPlan?: (planId: string) => void;
+  onCreateNewPlan?: () => void;
+  onDeletePlan?: (planId: string) => void;
   onStartRoutine: () => void;
   onEditPlan: () => void; // Trigger for editing whole plan
-  onUpdateDay: (dayIndex: number, day: PlanDay) => void; // Update specific day
+  onUpdateDay: (weekIndex: number, dayIndex: number, day: PlanDay) => void; // Updated to support weekIndex
   onMarkComplete: (dateStr: string, planDay: PlanDay) => void;
   onStartCheckin: (type: 'WEEKLY_CHECKIN' | 'WEEKLY_REVIEW') => void; // Trigger for weekly stories
 }
 
 const STORAGE_KEY_MEMORIES = 'yogaflow_memories';
 
-export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPlan, onStartRoutine, onEditPlan, onUpdateDay, onMarkComplete, onStartCheckin }) => {
+export const Journey: React.FC<JourneyProps> = ({ 
+    preferences, 
+    history, 
+    customPlan, 
+    plans = [], 
+    activePlanId,
+    onSwitchPlan,
+    onCreateNewPlan,
+    onDeletePlan,
+    onStartRoutine, 
+    onEditPlan, 
+    onUpdateDay, 
+    onMarkComplete, 
+    onStartCheckin 
+}) => {
   const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date());
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(new Date().toISOString().split('T')[0]);
   const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
+  const [isManagePlansModalOpen, setIsManagePlansModalOpen] = useState(false);
   const [showInsights, setShowInsights] = useState(true);
 
   // Week Selector State
@@ -70,20 +87,24 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
     ? history.filter(h => h.date === selectedDateStr)
     : [];
 
+  const getWeekIndexForDate = (dateStr: string) => {
+    if (!preferences.startDate || !plan.weeks) return 0;
+    
+    const start = new Date(preferences.startDate);
+    start.setHours(0,0,0,0);
+    const current = new Date(dateStr);
+    current.setHours(0,0,0,0);
+    const diffTime = current.getTime() - start.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) return 0;
+    return Math.floor(diffDays / 7) % plan.weeks.length;
+  };
+
   const getDayPlan = (dateStr: string) => {
     const date = new Date(dateStr);
     const dayOfWeek = date.getDay(); // 0-6
-    
-    let weekIndex = 0;
-    if (preferences.startDate && plan.weeks) {
-        const start = new Date(preferences.startDate);
-        start.setHours(0,0,0,0);
-        const current = new Date(dateStr);
-        current.setHours(0,0,0,0);
-        const diffTime = current.getTime() - start.getTime();
-        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-        if (diffDays >= 0) weekIndex = Math.floor(diffDays / 7) % plan.weeks.length;
-    }
+    const weekIndex = getWeekIndexForDate(dateStr);
 
     if (plan.weeks && plan.weeks.length > weekIndex) {
         return {
@@ -120,15 +141,18 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
 
   // Sync active week tab with selected date if user clicks calendar
   useEffect(() => {
-      if (selectedDayPlan?.weekLabel) {
-          setActiveWeekTab(selectedDayPlan.weekLabel - 1);
+      if (selectedDateStr) {
+          const weekIdx = getWeekIndexForDate(selectedDateStr);
+          setActiveWeekTab(weekIdx);
       }
-  }, [selectedDayPlan?.weekLabel]);
+  }, [selectedDateStr]);
 
   const handleSwapPractice = (type: 'Active' | 'Rest', focus?: string) => {
      if (!selectedDateStr) return;
      const date = new Date(selectedDateStr);
      const dayIndex = date.getDay();
+     const weekIndex = getWeekIndexForDate(selectedDateStr);
+
      let newDay: PlanDay;
 
      if (type === 'Rest') {
@@ -146,15 +170,38 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
             description: 'Sessão personalizada trocada manualmente.'
         };
      }
-     onUpdateDay(dayIndex, newDay);
+     
+     // IMPORTANT: Pass weekIndex to ensure we update the specific week
+     onUpdateDay(weekIndex, dayIndex, newDay);
      setIsSwapModalOpen(false);
   };
+  
+  const handleCreateNew = () => {
+      if (onCreateNewPlan) {
+          onCreateNewPlan();
+          setIsManagePlansModalOpen(false);
+      }
+  };
 
+  const handleDelete = (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if(confirm("Tem certeza que deseja apagar este plano? O histórico de sessões será mantido.")) {
+          if(onDeletePlan) onDeletePlan(id);
+      }
+  };
+
+  // Expanded swap options as requested (5 new ones added)
   const swapOptions = [
     { label: 'Flexibilidade', icon: <Activity size={18}/>, desc: 'Focar em alongamento' },
     { label: 'Força', icon: <Zap size={18}/>, desc: 'Focar em tonificação' },
     { label: 'Relaxamento', icon: <Coffee size={18}/>, desc: 'Focar em desestressar' },
     { label: 'Alívio de Dor', icon: <Target size={18}/>, desc: 'Focar em recuperação' },
+    // 5 New Options below
+    { label: 'Core Blast', icon: <Flame size={18}/>, desc: 'Foco abdominal intenso' },
+    { label: 'Cardio Yoga', icon: <Heart size={18}/>, desc: 'Fluxo rápido para suar' },
+    { label: 'Detox Twist', icon: <Droplets size={18}/>, desc: 'Torções para digestão' },
+    { label: 'Respiração Profunda', icon: <wind size={18}/>, desc: 'Pranayamas e calma' },
+    { label: 'Equilíbrio & Foco', icon: <Mountain size={18}/>, desc: 'Posturas de pé e concentração' },
   ];
 
   return (
@@ -298,13 +345,24 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
              <div className="relative z-10">
                <div className="flex items-center justify-between mb-4">
                  <Badge color="blue">Plano Atual</Badge>
-                 <button 
-                  onClick={onEditPlan}
-                  className="text-stone-400 hover:text-sage-600 transition-colors bg-white/50 p-2 rounded-full hover:bg-white"
-                  title="Editar Plano Completo"
-                 >
-                   <Edit3 size={16} />
-                 </button>
+                 <div className="flex gap-2">
+                    {/* Switch Plan Button */}
+                    <button
+                        onClick={() => setIsManagePlansModalOpen(true)}
+                        className="text-stone-400 hover:text-sage-600 transition-colors bg-white/50 p-2 rounded-full hover:bg-white"
+                        title="Trocar Jornada"
+                    >
+                        <List size={16} />
+                    </button>
+                    {/* Edit Current Plan Button */}
+                    <button 
+                        onClick={onEditPlan}
+                        className="text-stone-400 hover:text-sage-600 transition-colors bg-white/50 p-2 rounded-full hover:bg-white"
+                        title="Editar Plano Completo"
+                    >
+                        <Edit3 size={16} />
+                    </button>
+                 </div>
                </div>
                
                <h3 className="text-2xl font-light text-sage-900 mb-1">{plan.name}</h3>
@@ -450,7 +508,7 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
       {/* Swap Practice Modal */}
       {isSwapModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-fade-in">
+           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-fade-in flex flex-col max-h-[80vh]">
               <div className="p-4 border-b border-stone-100 flex justify-between items-center">
                  <h3 className="text-lg font-medium text-sage-900">Trocar Prática do Dia</h3>
                  <button onClick={() => setIsSwapModalOpen(false)} className="p-2 hover:bg-stone-100 rounded-full text-stone-500">
@@ -458,7 +516,7 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
                  </button>
               </div>
               
-              <div className="p-6">
+              <div className="p-6 overflow-y-auto">
                  <p className="text-stone-500 text-sm mb-4">Escolha o que você gostaria de fazer hoje em vez da programação original.</p>
                  
                  <div className="grid grid-cols-1 gap-3">
@@ -496,6 +554,78 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
               </div>
            </div>
         </div>
+      )}
+
+      {/* MANAGE PLANS MODAL */}
+      {isManagePlansModalOpen && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-fade-in flex flex-col max-h-[80vh]">
+                <div className="p-4 border-b border-stone-100 flex justify-between items-center">
+                    <h3 className="text-lg font-medium text-sage-900">Minhas Jornadas</h3>
+                    <button onClick={() => setIsManagePlansModalOpen(false)} className="p-2 hover:bg-stone-100 rounded-full text-stone-500">
+                        <X size={20} />
+                    </button>
+                </div>
+                
+                <div className="p-4 overflow-y-auto flex-1">
+                    <p className="text-sm text-stone-500 mb-4">
+                        Gerencie seus planos salvos. Você pode ter múltiplas jornadas com focos diferentes.
+                    </p>
+
+                    <div className="space-y-3">
+                        {plans.map(p => {
+                            const isActive = p.id === activePlanId;
+                            return (
+                                <div 
+                                    key={p.id}
+                                    onClick={() => onSwitchPlan && onSwitchPlan(p.id)}
+                                    className={`
+                                        relative p-4 rounded-xl border-2 transition-all cursor-pointer group
+                                        ${isActive 
+                                            ? 'border-sage-500 bg-sage-50 shadow-sm' 
+                                            : 'border-stone-100 bg-white hover:border-sage-300'
+                                        }
+                                    `}
+                                >
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <h4 className={`font-medium ${isActive ? 'text-sage-900' : 'text-stone-700'}`}>
+                                                {p.name}
+                                            </h4>
+                                            <p className="text-xs text-stone-500 mt-1 line-clamp-1">{p.description}</p>
+                                        </div>
+                                        {isActive && (
+                                            <div className="bg-sage-200 text-sage-800 p-1 rounded-full">
+                                                <Check size={14} />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Delete button (only show if active plan count > 1 OR it's not the active one - allowing deletion of non-actives always) */}
+                                    {/* Actually, user can delete the active one, logic in App handles setting new active. */}
+                                    <button
+                                        onClick={(e) => handleDelete(p.id, e)}
+                                        className="absolute bottom-2 right-2 p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
+                                        title="Excluir Plano"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="p-4 border-t border-stone-100 bg-stone-50 rounded-b-2xl">
+                    <Button onClick={handleCreateNew} className="w-full justify-center">
+                        <Plus size={18} /> Criar Nova Jornada
+                    </Button>
+                    <p className="text-[10px] text-stone-400 text-center mt-2">
+                        Será criada com base nas suas preferências atuais do Dashboard.
+                    </p>
+                </div>
+            </div>
+          </div>
       )}
     </div>
   );

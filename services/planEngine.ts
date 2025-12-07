@@ -1,122 +1,182 @@
+import { Goal, TrainingPlan, PlanDay, UserPreferences, Discomfort, Difficulty } from '../types';
 
-
-
-import { Goal, TrainingPlan, PlanDay, UserPreferences, Discomfort } from '../types';
-
-// Gera uma semana base
-const generateBaseWeek = (goal: Goal, discomforts: Discomfort[], age?: number, intensityModifier: string = ''): PlanDay[] => {
-  const baseSchedule: PlanDay[] = new Array(7).fill(null).map((_, i) => ({
-    dayOfWeek: i,
-    activityType: 'Rest',
-    description: 'Dia de descanso para recuperação física e mental.'
-  }));
-
-  const setActive = (dayIndex: number, focus: string, desc: string) => {
-    baseSchedule[dayIndex] = {
-      dayOfWeek: dayIndex,
-      activityType: 'Active',
-      focus: focus + (intensityModifier ? ` (${intensityModifier})` : ''),
-      description: desc
-    };
-  };
-
-  const isSenior = age && age > 60;
-  const hasBackPain = discomforts.includes('Lombar');
-  const hasKneePain = discomforts.includes('Joelhos');
-
-  switch (goal) {
-    case 'Flexibilidade':
-      setActive(1, hasBackPain ? 'Saúde da Coluna' : 'Abertura de Quadril', hasBackPain ? 'Foco em aliviar tensão lombar com segurança.' : 'Foco em soltar as tensões do quadril.');
-      setActive(3, 'Alongamento de Coluna', 'Torções e flexões para mobilidade da coluna.');
-      setActive(5, 'Corpo Inteiro', 'Fluxo contínuo para flexibilidade geral.');
-      setActive(6, isSenior ? 'Mobilidade Suave' : 'Yin Yoga', isSenior ? 'Movimentos gentis para articulações.' : 'Posturas de longa duração para tecidos profundos.');
-      break;
-    
-    case 'Força':
-      setActive(1, 'Core e Estabilidade', 'Fortalecimento do centro do corpo com segurança.');
-      setActive(3, hasKneePain ? 'Pernas sem Impacto' : 'Pernas e Guerreiros', hasKneePain ? 'Fortalecimento de pernas evitando pressão nos joelhos.' : 'Série de posturas em pé para resistência.');
-      setActive(5, 'Braços e Inversões', 'Desafios de equilíbrio e força superior.');
-      if (!isSenior) {
-        setActive(0, 'Alongamento Ativo', 'Recuperação ativa para soltar a musculatura.');
-      }
-      break;
-
-    case 'Relaxamento':
-      setActive(1, 'Anti-Stress', 'Respiração e movimentos suaves para começar a semana.');
-      setActive(2, 'Flow Suave', 'Movimento contínuo como meditação em movimento.');
-      setActive(4, 'Restaurativa', 'Uso de apoios para relaxamento profundo.');
-      setActive(6, 'Yoga Nidra', 'Relaxamento profundo guiado para o sistema nervoso.');
-      break;
-
-    case 'Alívio de Dor':
-      setActive(1, 'Saúde das Costas', 'Alívio para dores lombares e posturais.');
-      setActive(3, 'Pescoço e Ombros', 'Soltando a tensão acumulada na parte superior.');
-      setActive(5, 'Mobilidade Articular', 'Movimentos gentis para lubrificar as articulações.');
-      break;
+// Banco de Focos por Objetivo para criar variedade nas 4 semanas
+const FOCUS_POOLS: Record<Goal, { active: string[], restoration: string[] }> = {
+  'Flexibilidade': {
+    active: [
+      'Abertura de Quadril Profunda', 'Mobilidade de Ombros', 'Espacate (Hanumanasana)', 
+      'Flexão para Frente', 'Torções Detox', 'Abertura de Peito', 
+      'Mobilidade da Coluna', 'Flexibilidade de Isquiotibiais', 'Fluxo de Água', 'Saudação à Lua'
+    ],
+    restoration: ['Yin Yoga', 'Yoga para Fáscia', 'Soltura Articular', 'Alongamento Passivo']
+  },
+  'Força': {
+    active: [
+      'Core de Aço', 'Guerreiros Poderosos', 'Fortalecimento de Braços', 
+      'Pernas e Glúteos', 'Equilíbrio e Foco', 'Power Vinyasa', 
+      'Transições Fortes', 'Pranchas e Isometria', 'Resistência Total', 'Desafio de Inversão'
+    ],
+    restoration: ['Alongamento Ativo', 'Liberação Miofascial', 'Mobilidade Pós-Treino', 'Yoga para Atletas']
+  },
+  'Relaxamento': {
+    active: [
+      'Flow Suave (Gentle)', 'Respiração e Movimento', 'Saudação ao Sol Lenta', 
+      'Yoga Anti-Stress', 'Conexão Mente-Corpo', 'Movimento Consciente', 
+      'Equilíbrio Emocional', 'Yoga para Ansiedade', 'Grounding (Aterramento)', 'Fluxo de Gratidão'
+    ],
+    restoration: ['Yoga Nidra', 'Restaurativa com Almofadas', 'Meditação em Movimento', 'Sono Profundo']
+  },
+  'Alívio de Dor': {
+    active: [
+      'Saúde da Coluna', 'Postura Correta', 'Alívio de Pescoço', 
+      'Quadril Sem Dor', 'Mobilidade de Tornozelos', 'Fortalecimento Lombar', 
+      'Abertura de Ombros', 'Caminhada do Yoga', 'Alinhamento Pélvico', 'Yoga na Cadeira'
+    ],
+    restoration: ['Relaxamento Progressivo', 'Respiração Curativa', 'Alívio de Tensão', 'Suavidade Articular']
   }
+};
 
-  return baseSchedule;
+const WEEK_THEMES = [
+  'Fundação e Despertar',
+  'Construção e Estabilidade',
+  'Aprofundamento e Desafio',
+  'Integração e Fluidez'
+];
+
+// Função auxiliar para selecionar itens sem repetição imediata
+const pickUnique = (pool: string[], used: Set<string>, count: number): string[] => {
+  const available = pool.filter(item => !used.has(item));
+  // Se acabarem as opções, reseta (ou pega do pool total)
+  const source = available.length >= count ? available : pool;
+  
+  // Shuffle simples
+  const shuffled = [...source].sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, count);
+};
+
+const generateVariedWeek = (
+  weekIndex: number,
+  goal: Goal, 
+  discomforts: Discomfort[], 
+  level: Difficulty,
+  usedFocuses: Set<string>
+): PlanDay[] => {
+  const days: PlanDay[] = new Array(7).fill(null);
+  const theme = WEEK_THEMES[weekIndex];
+  
+  // Definição de Intensidade baseada na semana e nível
+  let intensity = '';
+  if (level === 'Iniciante') intensity = weekIndex === 2 ? 'Moderada' : 'Suave';
+  if (level === 'Intermediário') intensity = weekIndex === 2 ? 'Alta' : 'Moderada';
+  if (level === 'Avançado') intensity = weekIndex === 3 ? 'Flow' : 'Intensa';
+
+  // Configuração Padrão dos Dias (Pode variar baseada na logica)
+  // 0: Dom (Descanso/Leve), 1: Seg (Ativo), 2: Ter (Ativo), 3: Qua (Descanso/Rec), 4: Qui (Ativo), 5: Sex (Ativo/Desafio), 6: Sab (Restaurativo)
+  
+  const pool = FOCUS_POOLS[goal];
+  
+  // Selecionar 4 focos ativos únicos para essa semana
+  const activePicks = pickUnique(pool.active, usedFocuses, 4);
+  activePicks.forEach(p => usedFocuses.add(p));
+  
+  // Selecionar 1 foco restaurativo
+  const restPicks = pickUnique(pool.restoration, usedFocuses, 1);
+  
+  // Modificadores de Desconforto
+  const avoidWrists = discomforts.includes('Punhos');
+  const avoidKnees = discomforts.includes('Joelhos');
+
+  // Preenchendo a semana
+  days.forEach((_, i) => {
+    // Domingo (0): Descanso ou Leve
+    if (i === 0) {
+      days[i] = {
+        dayOfWeek: 0,
+        activityType: 'Rest',
+        focus: 'Intenção da Semana',
+        description: `Defina sua intenção para a fase de ${theme}.`
+      };
+    }
+    // Quarta (3): Descanso Ativo
+    else if (i === 3) {
+      days[i] = {
+        dayOfWeek: 3,
+        activityType: 'Rest',
+        focus: 'Descanso Ativo',
+        description: 'Caminhada leve ou alongamento livre.'
+      };
+    }
+    // Sábado (6): Restaurativo
+    else if (i === 6) {
+      days[i] = {
+        dayOfWeek: 6,
+        activityType: 'Active',
+        focus: restPicks[0],
+        description: `Prática de ${intensity.toLowerCase()} para fechar a semana.`
+      };
+    }
+    // Dias Ativos (1, 2, 4, 5)
+    else {
+      let pickIndex = 0; // Seg
+      if (i === 2) pickIndex = 1; // Ter
+      if (i === 4) pickIndex = 2; // Qui
+      if (i === 5) pickIndex = 3; // Sex
+
+      let focusName = activePicks[pickIndex];
+      let desc = `Sessão focada em ${focusName.toLowerCase()}.`;
+
+      // Adaptação de Desconforto no texto
+      if (avoidWrists && (focusName.includes('Braço') || focusName.includes('Plank'))) {
+        focusName += ' (Sem Punhos)';
+        desc += ' Adaptado para evitar pressão nas mãos.';
+      }
+      if (avoidKnees && (focusName.includes('Guerreiro') || focusName.includes('Perna'))) {
+        desc += ' Com variações gentis para os joelhos.';
+      }
+
+      days[i] = {
+        dayOfWeek: i,
+        activityType: 'Active',
+        focus: focusName,
+        description: desc
+      };
+    }
+  });
+
+  return days;
 };
 
 export const createPersonalizedPlan = (prefs: UserPreferences): TrainingPlan => {
-  const { goal, age, weight, discomforts } = prefs;
+  const { goal, level, discomforts, duration } = prefs;
   
   // Gerar descrição geral
-  let description = `Um plano equilibrado de 4 semanas focado em ${goal.toLowerCase()}.`;
+  let description = `Plano de 4 semanas focado em ${goal} (${level}).`;
   if (discomforts.length > 0 && !discomforts.includes('Nenhum')) {
-    description += ` Adaptado para cuidar de: ${discomforts.join(', ')}.`;
+    description += ` Cuidado especial com: ${discomforts.join(', ')}.`;
   }
   
-  // Gerar Raciocínio (Insights)
-  const reasoning: string[] = [];
-  
-  // 1. Baseado no Objetivo
-  if (goal === 'Flexibilidade') {
-      reasoning.push("O foco em flexibilidade ajudará a soltar a rigidez muscular acumulada, melhorando sua amplitude de movimento.");
-  } else if (goal === 'Força') {
-      reasoning.push("Priorizamos posturas isométricas para construir força muscular sem impacto excessivo nas articulações.");
-  } else if (goal === 'Relaxamento') {
-      reasoning.push("Incluímos mais pausas e respirações longas para ativar seu sistema nervoso parassimpático (relaxamento).");
-  } else if (goal === 'Alívio de Dor') {
-      reasoning.push("O plano foca em mobilidade suave e correção postural para tratar a causa raiz das dores.");
-  }
+  const reasoning: string[] = [
+    `Objetivo: ${goal} - Foco em progressão gradual.`,
+    `Nível: ${level} - Ritmo ajustado para sua experiência.`,
+    `Duração: ${duration} min - Consistência sobre intensidade.`
+  ];
 
-  // 2. Baseado nos Desconfortos
-  if (discomforts.includes('Joelhos')) {
-      reasoning.push("Para seus joelhos: Selecionamos variações que evitam agachamentos profundos e pressão direta na patela.");
-  }
-  if (discomforts.includes('Lombar')) {
-      reasoning.push("Para sua lombar: Enfatizamos o fortalecimento do 'Core' para dar suporte à coluna e evitamos flexões traseiras extremas.");
-  }
-  if (discomforts.includes('Pescoço/Ombros')) {
-      reasoning.push("Para pescoço e ombros: Adicionamos alongamentos específicos de trapézio e evitamos sobrecarga nos braços.");
-  }
-  if (discomforts.includes('Punhos')) {
-      reasoning.push("Para os punhos: Substituímos muitas pranchas por apoios no antebraço para reduzir a pressão no carpo.");
-  }
+  if (discomforts.length > 0) reasoning.push('As posturas serão sugeridas evitando sobrecarga nas áreas indicadas.');
 
-  // 3. Baseado na Idade/Peso
-  if (age && age > 55) {
-      reasoning.push(`Considerando sua idade (${age} anos), o ritmo é cadenciado para promover longevidade articular e equilíbrio.`);
-  }
-  if (weight && weight > 90 && goal !== 'Força') {
-      reasoning.push("Ajustamos as transições para serem mais suaves, garantindo conforto e segurança durante a prática.");
-  }
-  
-  // 4. Baseado na Duração
-  reasoning.push(`Sessões de ${prefs.duration} minutos foram escolhidas para garantir consistência diária, que é mais importante que intensidade esporádica.`);
+  // Gerar 4 semanas distintas
+  const usedFocuses = new Set<string>();
+  const weeks: PlanDay[][] = [];
 
-
-  // Gerar 4 semanas com leve variação de tema
-  const weekThemes = ['Fundação', 'Aprofundamento', 'Desafio', 'Integração'];
-  const weeks = weekThemes.map(theme => generateBaseWeek(goal, discomforts, age, theme));
+  for (let i = 0; i < 4; i++) {
+    weeks.push(generateVariedWeek(i, goal, discomforts, level, usedFocuses));
+  }
 
   return {
     id: `plan-${goal.toLowerCase()}-${Date.now()}`,
-    name: `Jornada de ${goal}`,
+    name: `Jornada ${goal} ${level}`,
     description,
     durationWeeks: 4,
-    schedule: weeks[0], // Padrão é a semana 1
+    schedule: weeks[0], // Fallback schedule
     weeks: weeks,
     reasoning: reasoning
   };
@@ -124,6 +184,6 @@ export const createPersonalizedPlan = (prefs: UserPreferences): TrainingPlan => 
 
 export const getTodaysPlan = (plan: TrainingPlan): PlanDay => {
   const todayIndex = new Date().getDay();
-  // Idealmente, calcularíamos qual semana estamos, mas para um "Today" simples, pegamos a semana 1 ou schedule atual
+  // Simples retorno do schedule base, a lógica de data real está no componente Journey
   return plan.schedule[todayIndex];
 };

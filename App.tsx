@@ -1,7 +1,3 @@
-
-
-
-
 import React, { useState, useEffect } from 'react';
 import { UserPreferences, Routine, ViewState, Difficulty, Goal, Duration, SessionRecord, TrainingPlan, Discomfort, PlanDay, User, FeedbackRecord, StoryType } from './types';
 import { generateRoutine } from './services/routineEngine';
@@ -39,7 +35,8 @@ import {
 
 // Storage keys helper
 const getPrefsKey = (userId: string) => `yogaflow_prefs_${userId}`;
-const getPlanKey = (userId: string) => `yogaflow_plan_${userId}`;
+const getPlansKey = (userId: string) => `yogaflow_plans_v2_${userId}`; // Changed key for array support
+const getActivePlanIdKey = (userId: string) => `yogaflow_active_plan_id_${userId}`;
 const getHistoryKey = (userId: string) => `yogaflow_history_${userId}`;
 const getWeeklyContextKey = (userId: string) => `yogaflow_weekly_ctx_${userId}`;
 
@@ -60,7 +57,10 @@ const App: React.FC = () => {
     hasOnboarded: false
   });
   
-  const [customPlan, setCustomPlan] = useState<TrainingPlan | null>(null);
+  // Plans State (Multi-plan support)
+  const [plans, setPlans] = useState<TrainingPlan[]>([]);
+  const [activePlanId, setActivePlanId] = useState<string | null>(null);
+
   const [history, setHistory] = useState<SessionRecord[]>([]);
   const [currentRoutine, setCurrentRoutine] = useState<Routine | null>(null);
   const [onboardingStep, setOnboardingStep] = useState(0);
@@ -72,6 +72,9 @@ const App: React.FC = () => {
   const [storyType, setStoryType] = useState<StoryType>('POST_PRACTICE');
   const [weeklyContext, setWeeklyContext] = useState<FeedbackRecord | null>(null);
   const [weeklyReport, setWeeklyReport] = useState<{intention: string, result: string, insight: string} | null>(null);
+
+  // Derived Active Plan
+  const activePlan = plans.find(p => p.id === activePlanId) || plans[0] || null;
 
   // --- Auth & Data Loading Effects ---
 
@@ -95,7 +98,8 @@ const App: React.FC = () => {
     
     // Load User Data from LocalStorage
     const prefsStr = localStorage.getItem(getPrefsKey(authenticatedUser.id));
-    const planStr = localStorage.getItem(getPlanKey(authenticatedUser.id));
+    const plansStr = localStorage.getItem(getPlansKey(authenticatedUser.id));
+    const activePlanIdStr = localStorage.getItem(getActivePlanIdKey(authenticatedUser.id));
     const historyStr = localStorage.getItem(getHistoryKey(authenticatedUser.id));
     const weeklyCtxStr = localStorage.getItem(getWeeklyContextKey(authenticatedUser.id));
 
@@ -114,12 +118,26 @@ const App: React.FC = () => {
       setView('ONBOARDING');
     }
 
-    if (planStr) setCustomPlan(JSON.parse(planStr));
+    // Load Plans (Migration Logic for old single plan)
+    if (plansStr) {
+      setPlans(JSON.parse(plansStr));
+      if (activePlanIdStr) setActivePlanId(activePlanIdStr);
+    } else {
+      // Check for legacy single plan
+      const legacyPlanStr = localStorage.getItem(`yogaflow_plan_${authenticatedUser.id}`);
+      if (legacyPlanStr) {
+        const legacyPlan = JSON.parse(legacyPlanStr);
+        setPlans([legacyPlan]);
+        setActivePlanId(legacyPlan.id);
+        // Save to new format immediately
+        localStorage.setItem(getPlansKey(authenticatedUser.id), JSON.stringify([legacyPlan]));
+        localStorage.setItem(getActivePlanIdKey(authenticatedUser.id), legacyPlan.id);
+      }
+    }
     
     if (historyStr) {
       setHistory(JSON.parse(historyStr));
     } else {
-      // Demo history for new users just to show UI (optional, remove for prod)
       setHistory([]);
     }
 
@@ -141,7 +159,8 @@ const App: React.FC = () => {
       hasOnboarded: false
     });
     setHistory([]);
-    setCustomPlan(null);
+    setPlans([]);
+    setActivePlanId(null);
     setView('AUTH');
   };
 
@@ -154,10 +173,13 @@ const App: React.FC = () => {
     }
   };
 
-  const saveCustomPlan = (newPlan: TrainingPlan) => {
-    setCustomPlan(newPlan);
+  const savePlans = (newPlans: TrainingPlan[], newActiveId?: string) => {
+    setPlans(newPlans);
+    if (newActiveId) setActivePlanId(newActiveId);
+    
     if (user) {
-      localStorage.setItem(getPlanKey(user.id), JSON.stringify(newPlan));
+      localStorage.setItem(getPlansKey(user.id), JSON.stringify(newPlans));
+      if (newActiveId) localStorage.setItem(getActivePlanIdKey(user.id), newActiveId);
     }
   };
 
@@ -180,7 +202,7 @@ const App: React.FC = () => {
 
   const handleOnboardingComplete = () => {
     const generatedPlan = createPersonalizedPlan(preferences);
-    saveCustomPlan(generatedPlan);
+    savePlans([generatedPlan], generatedPlan.id);
     
     const finalPrefs = { 
       ...preferences, 
@@ -201,11 +223,51 @@ const App: React.FC = () => {
       
       savePreferences(editingPrefs);
       
-      // Regenerate plan to reflect new preferences
-      const newPlan = createPersonalizedPlan(editingPrefs);
-      saveCustomPlan(newPlan);
+      // Update active plan to reflect new preferences if it exists
+      if (activePlan) {
+        const newPlan = createPersonalizedPlan(editingPrefs);
+        // Keep ID and Name consistent if updating existing logic, or just replace content
+        const updatedPlan = { ...newPlan, id: activePlan.id, name: activePlan.name };
+        const updatedPlans = plans.map(p => p.id === activePlan.id ? updatedPlan : p);
+        savePlans(updatedPlans);
+      }
       
       setEditingPrefs(null);
+  };
+
+  // Create a brand new plan (Multi-plan support)
+  const handleCreateNewPlan = () => {
+    const newPlan = createPersonalizedPlan(preferences);
+    // Ensure unique name or ID
+    newPlan.name = `${newPlan.name} (Nova)`;
+    newPlan.id = `plan-${Date.now()}`;
+    
+    const updatedPlans = [...plans, newPlan];
+    savePlans(updatedPlans, newPlan.id);
+  };
+
+  const handleDeletePlan = (planId: string) => {
+    const updatedPlans = plans.filter(p => p.id !== planId);
+    let newActiveId = activePlanId;
+    
+    if (activePlanId === planId) {
+       newActiveId = updatedPlans.length > 0 ? updatedPlans[0].id : undefined;
+    }
+    
+    // If we deleted the active plan id, we must pass the new one, else maintain current
+    if (activePlanId === planId && newActiveId) {
+        savePlans(updatedPlans, newActiveId);
+    } else if (updatedPlans.length === 0) {
+        setPlans([]);
+        setActivePlanId(null);
+        if (user) {
+            localStorage.setItem(getPlansKey(user.id), JSON.stringify([]));
+            localStorage.removeItem(getActivePlanIdKey(user.id));
+        }
+    } else {
+        // Just removed a non-active plan
+        savePlans(updatedPlans); 
+    }
   };
 
   const handleGenerate = () => {
@@ -231,15 +293,33 @@ const App: React.FC = () => {
     saveHistory([newRecord, ...history]);
   };
 
-  const handleUpdateDay = (dayIndex: number, newDayData: PlanDay) => {
-    const activePlan = customPlan || createPersonalizedPlan(preferences);
-    const newSchedule = [...activePlan.schedule];
-    newSchedule[dayIndex] = newDayData;
+  // Updated to handle specific week index
+  const handleUpdateDay = (weekIndex: number, dayIndex: number, newDayData: PlanDay) => {
+    if (!activePlan) return;
+
+    // Clone the plan's weeks structure
+    let newWeeks = activePlan.weeks ? [...activePlan.weeks] : [];
     
-    saveCustomPlan({
-      ...activePlan,
-      schedule: newSchedule
-    });
+    // If weeks doesn't exist or is empty (legacy), create it from schedule
+    if (newWeeks.length === 0) {
+        newWeeks = [activePlan.schedule, activePlan.schedule, activePlan.schedule, activePlan.schedule];
+    }
+
+    // Deep clone the specific week
+    const targetWeek = [...newWeeks[weekIndex]];
+    targetWeek[dayIndex] = newDayData;
+    newWeeks[weekIndex] = targetWeek;
+
+    const updatedPlan = { 
+        ...activePlan, 
+        weeks: newWeeks,
+        // Also update legacy schedule if we modified the first week
+        schedule: weekIndex === 0 ? targetWeek : activePlan.schedule 
+    };
+
+    const updatedPlans = plans.map(p => p.id === activePlan.id ? updatedPlan : p);
+    
+    savePlans(updatedPlans);
   };
 
   const handleStoriesComplete = (feedback: FeedbackRecord) => {
@@ -584,7 +664,8 @@ const App: React.FC = () => {
                   <Play size={20} fill="currentColor" />
                   Iniciar Prática
                 </Button>
-                <Button variant="outline" onClick={handleGenerate} className="border-white/30 text-white hover:bg-white/10">
+                {/* Changed: Edit Button now goes to Plan Editor instead of Routine Editor */}
+                <Button variant="outline" onClick={() => setView('PLAN_EDITOR')} className="border-white/30 text-white hover:bg-white/10" title="Editar Dia/Plano">
                   <Edit2 size={20} />
                 </Button>
               </div>
@@ -818,13 +899,15 @@ const App: React.FC = () => {
     );
   }
 
-  if (view === 'PLAN_EDITOR') {
+  if (view === 'PLAN_EDITOR' && activePlan) {
     return (
       <PlanEditor
-        initialPlan={customPlan || createPersonalizedPlan(preferences)}
+        initialPlan={activePlan}
         onCancel={() => setView('JOURNEY')}
         onSave={(updatedPlan) => {
-          saveCustomPlan(updatedPlan);
+          // Update the specific plan in the array
+          const updatedPlans = plans.map(p => p.id === updatedPlan.id ? updatedPlan : p);
+          savePlans(updatedPlans);
           setView('JOURNEY');
         }}
       />
@@ -846,7 +929,12 @@ const App: React.FC = () => {
            <Journey 
              preferences={preferences} 
              history={history}
-             customPlan={customPlan}
+             customPlan={activePlan} // Pass active plan (could be null if none)
+             plans={plans}
+             activePlanId={activePlanId}
+             onSwitchPlan={(id) => savePlans(plans, id)}
+             onCreateNewPlan={handleCreateNewPlan}
+             onDeletePlan={handleDeletePlan}
              onStartRoutine={handleGenerate} 
              onEditPlan={() => setView('PLAN_EDITOR')}
              onUpdateDay={handleUpdateDay}
