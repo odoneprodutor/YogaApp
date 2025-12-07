@@ -1,5 +1,7 @@
 
-import { Article } from '../types';
+
+import { Article, Comment } from '../types';
+import { authService } from './auth';
 
 const STORAGE_KEY_ARTICLES = 'yogaflow_custom_articles';
 
@@ -12,6 +14,9 @@ const INITIAL_ARTICLES: Article[] = [
     author: 'Patanjali (Interpretação)',
     excerpt: 'Yoga é muito mais do que posturas físicas. Conheça o caminho completo descrito nos Yoga Sutras.',
     imageUrl: 'https://images.unsplash.com/photo-1545205597-3d9d02c29597?auto=format&fit=crop&q=80&w=600',
+    likes: 42,
+    likedBy: [],
+    comments: [],
     content: [
       'Muitas vezes, no ocidente, associamos Yoga apenas aos Asanas (posturas físicas). No entanto, o sábio Patanjali descreveu o Yoga como um caminho de oito passos (Ashtanga) para a iluminação e controle da mente.',
       '1. Yama: Códigos éticos de conduta (como não-violência e verdade).',
@@ -33,6 +38,20 @@ const INITIAL_ARTICLES: Article[] = [
     author: 'Dra. Elena Costa',
     excerpt: 'Descubra como essa técnica simples de respiração pode acalmar seu sistema nervoso instantaneamente.',
     imageUrl: 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&q=80&w=600',
+    likes: 125,
+    likedBy: [],
+    comments: [
+        { 
+            id: 'c1', 
+            userId: 'user1', 
+            userName: 'Maria Silva', 
+            text: 'Essa técnica mudou minha prática!', 
+            createdAt: '2023-10-10T10:00:00Z',
+            likes: 5,
+            likedBy: [],
+            replies: []
+        }
+    ],
     content: [
       'A respiração Ujjayi, frequentemente chamada de "respiração vitoriosa" ou "respiração do oceano", é fundamental em práticas como Vinyasa e Ashtanga. Ela é caracterizada por um som suave e sussurrante na garganta, semelhante às ondas do mar.',
       'Benefícios Fisiológicos: Ao estreitar levemente a glote, criamos uma resistência à passagem do ar. Isso aumenta a pressão intratorácica, melhora a troca gasosa e aquece o corpo de dentro para fora.',
@@ -48,6 +67,9 @@ const INITIAL_ARTICLES: Article[] = [
     author: 'Equipe YogaFlow',
     excerpt: 'Como um ex-atleta encontrou no Yoga a cura para suas lesões na coluna quando a medicina tradicional dizia que ele não correria mais.',
     imageUrl: 'https://images.unsplash.com/photo-1552196563-55cd4e45efb3?auto=format&fit=crop&q=80&w=600',
+    likes: 89,
+    likedBy: [],
+    comments: [],
     content: [
       'Marcos tinha 35 anos quando recebeu o diagnóstico: duas hérnias de disco que o impediriam de correr maratonas, sua grande paixão. A dor era constante, e os médicos sugeriam cirurgia como única opção, com riscos altos.',
       '"Eu me sentia traído pelo meu próprio corpo", conta Marcos. "Foi quando, por relutância, aceitei o convite de minha esposa para uma aula de Yoga Restaurativa."',
@@ -64,6 +86,9 @@ const INITIAL_ARTICLES: Article[] = [
     author: 'Instituto do Sono',
     excerpt: 'Estudos mostram que 20 minutos de Yoga antes de dormir podem equivaler a uma hora extra de sono REM.',
     imageUrl: 'https://images.unsplash.com/photo-1544367563-12123d8966cd?auto=format&fit=crop&q=80&w=600',
+    likes: 210,
+    likedBy: [],
+    comments: [],
     content: [
       'A insônia afeta milhões de pessoas, e muitas vezes a causa é um sistema nervoso simpático hiperativo (o modo de "luta ou fuga"). O Yoga noturno atua diretamente no sistema parassimpático, o modo de "descansar e digerir".',
       'Posturas como Viparita Karani (Pernas na Parede) e Balasana (Postura da Criança) reduzem os níveis de cortisol, o hormônio do estresse. Além disso, o alongamento suave libera a tensão muscular acumulada durante o dia, sinalizando ao cérebro que é seguro "desligar".',
@@ -78,6 +103,9 @@ const INITIAL_ARTICLES: Article[] = [
     author: 'Sarah V.',
     excerpt: 'Como ser gentil consigo mesmo no tapete de yoga pode transformar seus relacionamentos fora dele.',
     imageUrl: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&q=80&w=600',
+    likes: 56,
+    likedBy: [],
+    comments: [],
     content: [
       'Ahimsa é o primeiro Yama (código ético) do Yoga. Significa não-violência. Geralmente pensamos nisso como não ferir os outros, mas no contexto da prática de asanas, Ahimsa significa não forçar seu corpo em posturas para as quais ele não está pronto.',
       'Quantas vezes você se criticou mentalmente por não conseguir tocar os pés? Ou forçou um alongamento até sentir dor só para "conseguir" a postura?',
@@ -91,8 +119,12 @@ export const knowledgeBase = {
   getAllArticles: () => {
     try {
         const stored = localStorage.getItem(STORAGE_KEY_ARTICLES);
-        const customArticles: Article[] = stored ? JSON.parse(stored) : [];
-        return [...INITIAL_ARTICLES, ...customArticles];
+        if (stored) {
+            return JSON.parse(stored) as Article[];
+        }
+        
+        localStorage.setItem(STORAGE_KEY_ARTICLES, JSON.stringify(INITIAL_ARTICLES));
+        return INITIAL_ARTICLES;
     } catch (e) {
         console.error("Error loading articles", e);
         return INITIAL_ARTICLES;
@@ -101,7 +133,6 @@ export const knowledgeBase = {
   
   getDailyArticle: () => {
     const all = knowledgeBase.getAllArticles();
-    // Simple logic to pick a "Daily" article based on day of year
     const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
     const index = dayOfYear % all.length;
     return all[index];
@@ -113,13 +144,138 @@ export const knowledgeBase = {
 
   addArticle: (article: Article) => {
       try {
-          const stored = localStorage.getItem(STORAGE_KEY_ARTICLES);
-          const customArticles: Article[] = stored ? JSON.parse(stored) : [];
-          customArticles.push(article);
-          localStorage.setItem(STORAGE_KEY_ARTICLES, JSON.stringify(customArticles));
+          const articles = knowledgeBase.getAllArticles();
+          articles.unshift(article); // Add to top
+          localStorage.setItem(STORAGE_KEY_ARTICLES, JSON.stringify(articles));
       } catch (e) {
           console.error("Error adding article", e);
           throw e;
       }
+  },
+
+  toggleLike: (articleId: string, userId: string) => {
+      const articles = knowledgeBase.getAllArticles();
+      const articleIndex = articles.findIndex(a => a.id === articleId);
+      
+      if (articleIndex > -1) {
+          const article = articles[articleIndex];
+          // Ensure likedBy exists (migration support)
+          if (!article.likedBy) article.likedBy = [];
+
+          const hasLiked = article.likedBy.includes(userId);
+          
+          if (hasLiked) {
+              // Unlike
+              article.likes = Math.max(0, article.likes - 1);
+              article.likedBy = article.likedBy.filter(id => id !== userId);
+          } else {
+              // Like
+              article.likes += 1;
+              article.likedBy.push(userId);
+          }
+
+          localStorage.setItem(STORAGE_KEY_ARTICLES, JSON.stringify(articles));
+          return articles[articleIndex];
+      }
+      return null;
+  },
+
+  addComment: (articleId: string, text: string) => {
+      const articles = knowledgeBase.getAllArticles();
+      const articleIndex = articles.findIndex(a => a.id === articleId);
+      const user = authService.getCurrentUser();
+
+      if (articleIndex > -1 && user) {
+          const newComment: Comment = {
+              id: Date.now().toString(),
+              userId: user.id,
+              userName: user.name,
+              text: text,
+              createdAt: new Date().toISOString(),
+              likes: 0,
+              likedBy: [],
+              replies: []
+          };
+          
+          if (!articles[articleIndex].comments) articles[articleIndex].comments = [];
+          
+          articles[articleIndex].comments.push(newComment);
+          localStorage.setItem(STORAGE_KEY_ARTICLES, JSON.stringify(articles));
+          return articles[articleIndex];
+      }
+      return null;
+  },
+
+  // Helper function to recursively find and update a comment
+  updateCommentInTree: (comments: Comment[], commentId: string, updateFn: (c: Comment) => void): boolean => {
+      for (const comment of comments) {
+          if (comment.id === commentId) {
+              updateFn(comment);
+              return true;
+          }
+          if (comment.replies && comment.replies.length > 0) {
+              if (knowledgeBase.updateCommentInTree(comment.replies, commentId, updateFn)) return true;
+          }
+      }
+      return false;
+  },
+
+  toggleCommentLike: (articleId: string, commentId: string, userId: string) => {
+      const articles = knowledgeBase.getAllArticles();
+      const articleIndex = articles.findIndex(a => a.id === articleId);
+
+      if (articleIndex > -1) {
+          const article = articles[articleIndex];
+          
+          const success = knowledgeBase.updateCommentInTree(article.comments, commentId, (comment) => {
+              if (!comment.likedBy) comment.likedBy = [];
+              const hasLiked = comment.likedBy.includes(userId);
+              
+              if (hasLiked) {
+                  comment.likes = Math.max(0, comment.likes - 1);
+                  comment.likedBy = comment.likedBy.filter(id => id !== userId);
+              } else {
+                  comment.likes += 1;
+                  comment.likedBy.push(userId);
+              }
+          });
+
+          if (success) {
+              localStorage.setItem(STORAGE_KEY_ARTICLES, JSON.stringify(articles));
+              return article;
+          }
+      }
+      return null;
+  },
+
+  addReply: (articleId: string, parentCommentId: string, text: string) => {
+      const articles = knowledgeBase.getAllArticles();
+      const articleIndex = articles.findIndex(a => a.id === articleId);
+      const user = authService.getCurrentUser();
+
+      if (articleIndex > -1 && user) {
+          const article = articles[articleIndex];
+          const newReply: Comment = {
+              id: Date.now().toString(),
+              userId: user.id,
+              userName: user.name,
+              text: text,
+              createdAt: new Date().toISOString(),
+              likes: 0,
+              likedBy: [],
+              replies: []
+          };
+
+          const success = knowledgeBase.updateCommentInTree(article.comments, parentCommentId, (comment) => {
+              if (!comment.replies) comment.replies = [];
+              comment.replies.push(newReply);
+          });
+
+          if (success) {
+              localStorage.setItem(STORAGE_KEY_ARTICLES, JSON.stringify(articles));
+              return article;
+          }
+      }
+      return null;
   }
 };

@@ -34,6 +34,7 @@ export interface UserPreferences {
   level: Difficulty;
   goal: Goal;
   duration: Duration;
+  frequency: number; // Days per week (1-7)
   age?: number;
   weight?: number;
   discomforts: Discomfort[];
@@ -53,6 +54,7 @@ export interface Routine {
 export interface SessionRecord {
   id: string;
   userId?: string; // Link session to a user
+  planId?: string; // Link session to a specific plan
   date: string; // ISO String YYYY-MM-DD
   routineName: string;
   duration: number; // minutes
@@ -63,7 +65,8 @@ export interface SessionRecord {
 export interface PlanDay {
   dayOfWeek: number; // 0 (Sun) - 6 (Sat)
   activityType: 'Rest' | 'Active';
-  focus?: string;
+  practiceName?: string; // Nome da Prática (ex: Detox Twist)
+  focus?: string; // Foco Técnico (ex: Digestão / Torções)
   description?: string;
   weekLabel?: number; // Para identificar a semana visualmente
 }
@@ -77,6 +80,23 @@ export interface TrainingPlan {
   weeks?: PlanDay[][]; // Array of weekly schedules (e.g., 4 weeks)
   durationWeeks?: number;
   reasoning?: string[]; // Explicações do porquê este plano foi gerado
+  
+  // Evolution Fields
+  status?: 'active' | 'completed' | 'archived';
+  progress?: number; // 0 to 100 percentage
+  completedSessions?: number;
+  totalPlannedSessions?: number;
+}
+
+export interface Comment {
+  id: string;
+  userId: string;
+  userName: string;
+  text: string;
+  createdAt: string; // ISO Date
+  likes: number;
+  likedBy: string[]; // List of user IDs who liked
+  replies?: Comment[]; // Nested replies
 }
 
 export interface Article {
@@ -89,6 +109,12 @@ export interface Article {
   imageUrl: string;
   author: string;
   isPremium?: boolean;
+  isUserGenerated?: boolean;
+  
+  // Social
+  likes: number;
+  likedBy: string[]; // List of user IDs who liked
+  comments: Comment[];
 }
 
 // --- NEW FEEDBACK / STORIES TYPES ---

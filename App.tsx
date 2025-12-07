@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
 import { UserPreferences, Routine, ViewState, Difficulty, Goal, Duration, SessionRecord, TrainingPlan, Discomfort, PlanDay, User, FeedbackRecord, StoryType } from './types';
 import { generateRoutine } from './services/routineEngine';
-import { createPersonalizedPlan } from './services/planEngine';
+import { createPersonalizedPlan, calculatePlanProgress, createEvolutionPlan } from './services/planEngine';
 import { authService } from './services/auth';
 import { PoseLibrary } from './components/PoseLibrary';
 import { RoutinePlayer } from './components/RoutinePlayer';
@@ -30,7 +31,17 @@ import {
   BookOpen,
   X,
   Save,
-  Star
+  Star,
+  Coffee,
+  Target,
+  Flame,
+  Heart,
+  Droplets,
+  Wind,
+  Mountain,
+  CalendarDays,
+  Trophy,
+  ArrowUpCircle
 } from 'lucide-react';
 
 // Storage keys helper
@@ -51,6 +62,7 @@ const App: React.FC = () => {
     level: 'Iniciante',
     goal: 'Relaxamento',
     duration: 15,
+    frequency: 3, // Default value
     age: 30,
     weight: undefined,
     discomforts: [],
@@ -67,14 +79,31 @@ const App: React.FC = () => {
   
   // Dashboard Prefs Editor State
   const [editingPrefs, setEditingPrefs] = useState<UserPreferences | null>(null);
+  const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
 
   // Stories State
   const [storyType, setStoryType] = useState<StoryType>('POST_PRACTICE');
   const [weeklyContext, setWeeklyContext] = useState<FeedbackRecord | null>(null);
   const [weeklyReport, setWeeklyReport] = useState<{intention: string, result: string, insight: string} | null>(null);
+  
+  // Graduation State
+  const [showGraduation, setShowGraduation] = useState(false);
 
   // Derived Active Plan
   const activePlan = plans.find(p => p.id === activePlanId) || plans[0] || null;
+
+  // Swap Options (Same as Journey)
+  const swapOptions = [
+    { label: 'Flexibilidade', icon: <Activity size={18}/>, desc: 'Focar em alongamento' },
+    { label: 'Força', icon: <Zap size={18}/>, desc: 'Focar em tonificação' },
+    { label: 'Relaxamento', icon: <Coffee size={18}/>, desc: 'Focar em desestressar' },
+    { label: 'Alívio de Dor', icon: <Target size={18}/>, desc: 'Focar em recuperação' },
+    { label: 'Core Blast', icon: <Flame size={18}/>, desc: 'Foco abdominal intenso' },
+    { label: 'Cardio Yoga', icon: <Heart size={18}/>, desc: 'Fluxo rápido para suar' },
+    { label: 'Detox Twist', icon: <Droplets size={18}/>, desc: 'Torções para digestão' },
+    { label: 'Respiração Profunda', icon: <Wind size={18}/>, desc: 'Pranayamas e calma' },
+    { label: 'Equilíbrio & Foco', icon: <Mountain size={18}/>, desc: 'Posturas de pé e concentração' },
+  ];
 
   // --- Auth & Data Loading Effects ---
 
@@ -105,6 +134,8 @@ const App: React.FC = () => {
 
     if (prefsStr) {
       const loadedPrefs = JSON.parse(prefsStr);
+      // Ensure frequency exists for old users
+      if (!loadedPrefs.frequency) loadedPrefs.frequency = 3;
       setPreferences(loadedPrefs);
       
       if (loadedPrefs.hasOnboarded) {
@@ -120,7 +151,12 @@ const App: React.FC = () => {
 
     // Load Plans (Migration Logic for old single plan)
     if (plansStr) {
-      setPlans(JSON.parse(plansStr));
+      let loadedPlans: TrainingPlan[] = JSON.parse(plansStr);
+      // Recalculate progress for all plans on load
+      const loadedHistory = historyStr ? JSON.parse(historyStr) : [];
+      loadedPlans = loadedPlans.map(p => calculatePlanProgress(p, loadedHistory));
+      setPlans(loadedPlans);
+
       if (activePlanIdStr) setActivePlanId(activePlanIdStr);
     } else {
       // Check for legacy single plan
@@ -155,6 +191,7 @@ const App: React.FC = () => {
       level: 'Iniciante',
       goal: 'Relaxamento',
       duration: 15,
+      frequency: 3,
       discomforts: [],
       hasOnboarded: false
     });
@@ -185,6 +222,11 @@ const App: React.FC = () => {
 
   const saveHistory = (newHistory: SessionRecord[]) => {
     setHistory(newHistory);
+    
+    // Always recalculate progress when history changes
+    const updatedPlans = plans.map(p => calculatePlanProgress(p, newHistory));
+    savePlans(updatedPlans);
+
     if (user) {
       localStorage.setItem(getHistoryKey(user.id), JSON.stringify(newHistory));
     }
@@ -227,7 +269,13 @@ const App: React.FC = () => {
       if (activePlan) {
         const newPlan = createPersonalizedPlan(editingPrefs);
         // Keep ID and Name consistent if updating existing logic, or just replace content
-        const updatedPlan = { ...newPlan, id: activePlan.id, name: activePlan.name };
+        const updatedPlan = { 
+            ...newPlan, 
+            id: activePlan.id, 
+            name: activePlan.name,
+            progress: activePlan.progress,
+            completedSessions: activePlan.completedSessions
+        };
         const updatedPlans = plans.map(p => p.id === activePlan.id ? updatedPlan : p);
         savePlans(updatedPlans);
       }
@@ -244,6 +292,37 @@ const App: React.FC = () => {
     
     const updatedPlans = [...plans, newPlan];
     savePlans(updatedPlans, newPlan.id);
+  };
+
+  // --- EVOLUTION HANDLER ---
+  const handleEvolvePlan = () => {
+      if (!activePlan) return;
+      
+      // 1. Mark current as completed/archived
+      const archivedPlan = { ...activePlan, status: 'completed' as const };
+      
+      // 2. Create Next Level Plan
+      const nextPlan = createEvolutionPlan(archivedPlan, preferences);
+      
+      // 3. Update State
+      const updatedPlans = plans.map(p => p.id === activePlan.id ? archivedPlan : p);
+      updatedPlans.push(nextPlan);
+      
+      savePlans(updatedPlans, nextPlan.id);
+      
+      // Update User Level in Prefs if changed
+      if (preferences.level !== 'Avançado' && nextPlan.name.includes('Intermediário')) {
+          savePreferences({ ...preferences, level: 'Intermediário', startDate: new Date().toISOString() });
+      } else if (preferences.level !== 'Avançado' && nextPlan.name.includes('Avançado')) {
+          savePreferences({ ...preferences, level: 'Avançado', startDate: new Date().toISOString() });
+      } else {
+          // Reset start date for the new cycle
+           savePreferences({ ...preferences, startDate: new Date().toISOString() });
+      }
+      
+      setShowGraduation(false);
+      setWeeklyReport(null);
+      setView('JOURNEY');
   };
 
   const handleDeletePlan = (planId: string) => {
@@ -286,8 +365,9 @@ const App: React.FC = () => {
     const newRecord: SessionRecord = {
       id: Date.now().toString(),
       userId: user?.id,
+      planId: activePlan?.id, // Link to current plan
       date: dateStr,
-      routineName: planDay.focus || `Prática de ${preferences.goal}`,
+      routineName: planDay.practiceName || planDay.focus || `Prática de ${preferences.goal}`,
       duration: preferences.duration // Assume user did the standard duration
     };
     saveHistory([newRecord, ...history]);
@@ -322,12 +402,42 @@ const App: React.FC = () => {
     savePlans(updatedPlans);
   };
 
+  const handleDashboardSwap = (type: 'Active' | 'Rest', practice?: {label: string, desc: string}) => {
+      const todayCtx = getTodayContext();
+      if (!todayCtx) return;
+
+      let newDay: PlanDay;
+      if (type === 'Rest') {
+        newDay = {
+            dayOfWeek: todayCtx.dayIndex,
+            activityType: 'Rest',
+            practiceName: 'Descanso',
+            focus: 'Recuperação',
+            description: 'Dia de recuperação escolhido por você.'
+        };
+      } else {
+        const name = practice?.label || 'Prática Livre';
+        const desc = practice?.desc || 'Sessão personalizada.';
+        newDay = {
+            dayOfWeek: todayCtx.dayIndex,
+            activityType: 'Active',
+            practiceName: name,
+            focus: 'Personalizado',
+            description: `Sessão trocada manualmente: ${desc}`
+        };
+      }
+      
+      handleUpdateDay(todayCtx.weekIndex, todayCtx.dayIndex, newDay);
+      setIsSwapModalOpen(false);
+  };
+
   const handleStoriesComplete = (feedback: FeedbackRecord) => {
     // 1. Post Practice Logic
     if (feedback.type === 'POST_PRACTICE' && currentRoutine) {
         const newRecord: SessionRecord = {
             id: Date.now().toString(),
             userId: user?.id,
+            planId: activePlan?.id,
             date: new Date().toISOString().split('T')[0],
             routineName: currentRoutine.name,
             duration: Math.round(currentRoutine.totalDuration / 60),
@@ -377,6 +487,12 @@ const App: React.FC = () => {
             insight
         });
         
+        // Check if this was the FINAL week (Week 4 Review)
+        const ctx = getTodayContext();
+        if (ctx && ctx.weekIndex >= 3) {
+            setShowGraduation(true);
+        }
+        
         // Reset context for next week
         saveWeeklyContext(null);
     }
@@ -390,13 +506,39 @@ const App: React.FC = () => {
       setView('STORIES');
   };
 
+  // Helper to calculate Today's specific plan details
+  const getTodayContext = () => {
+    if (!activePlan) return null;
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const dayOfWeek = today.getDay();
+    
+    let weekIndex = 0;
+    if (activePlan.weeks && preferences.startDate) {
+        const start = new Date(preferences.startDate);
+        start.setHours(0,0,0,0);
+        const diffTime = today.getTime() - start.getTime();
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        if (diffDays >= 0) {
+            weekIndex = Math.floor(diffDays / 7) % activePlan.weeks.length;
+        }
+    }
+    
+    const week = activePlan.weeks ? activePlan.weeks[weekIndex] : activePlan.schedule;
+    const dayPlan = week ? week[dayOfWeek] : activePlan.schedule[dayOfWeek];
+    
+    return { weekIndex, dayIndex: dayOfWeek, dayPlan };
+  };
+
   // --- Views ---
 
   const renderOnboarding = () => {
-    // Steps definition: 0: Intro/Bio, 1: Discomforts, 2: Experience Level, 3: Goal, 4: Duration
+    // Steps: 0: Intro/Bio, 1: Discomforts, 2: Experience Level, 3: Frequency, 4: Goal, 5: Duration
+    // Total steps = 6
+    const totalSteps = 6;
     const nextStep = () => setOnboardingStep(prev => prev + 1);
     const prevStep = () => setOnboardingStep(prev => Math.max(0, prev - 1));
-    const progress = ((onboardingStep + 1) / 5) * 100;
+    const progress = ((onboardingStep + 1) / totalSteps) * 100;
 
     // Helper wrapper to update state and auto save to LS for draft resilience
     const updatePrefs = (updates: Partial<UserPreferences>) => {
@@ -541,8 +683,45 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* Step 3: Goal */}
+            {/* Step 3: Frequency (NEW) */}
             {onboardingStep === 3 && (
+              <div className="animate-fade-in">
+                <div className="flex justify-center mb-6">
+                  <div className="w-16 h-16 bg-pink-100 rounded-full flex items-center justify-center">
+                    <CalendarDays size={32} className="text-pink-500" />
+                  </div>
+                </div>
+                <h2 className="text-2xl font-medium text-center text-sage-900 mb-2">Frequência</h2>
+                <p className="text-center text-stone-500 mb-8">Quantos dias por semana você gostaria de praticar?</p>
+                
+                <div className="grid grid-cols-3 gap-3">
+                  {[2, 3, 4, 5, 6, 7].map((days) => (
+                    <button
+                      key={days}
+                      onClick={() => {
+                        updatePrefs({ frequency: days });
+                        nextStep();
+                      }}
+                      className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1
+                        ${preferences.frequency === days
+                          ? 'border-sage-500 bg-sage-50 text-sage-800' 
+                          : 'border-stone-100 bg-white text-stone-600 hover:border-sage-200'
+                        }
+                      `}
+                    >
+                      <span className="text-2xl font-bold">{days}</span>
+                      <span className="text-xs font-medium">Dias</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-6">
+                  <Button variant="ghost" onClick={prevStep} className="w-full">Voltar</Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Goal */}
+            {onboardingStep === 4 && (
               <div className="animate-fade-in">
                 <div className="flex justify-center mb-6">
                   <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center">
@@ -573,8 +752,8 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* Step 4: Duration */}
-            {onboardingStep === 4 && (
+            {/* Step 5: Duration */}
+            {onboardingStep === 5 && (
               <div className="animate-fade-in">
                 <div className="flex justify-center mb-6">
                   <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center">
@@ -621,6 +800,15 @@ const App: React.FC = () => {
   };
 
   const renderDashboard = () => {
+    const todayCtx = getTodayContext();
+    // Logic to handle Rest Days gracefully in Dashboard Title
+    const isRestDay = todayCtx?.dayPlan?.activityType === 'Rest';
+    // Use practiceName if available, else fallback to focus, else generic
+    const todayPracticeName = todayCtx?.dayPlan?.practiceName || todayCtx?.dayPlan?.focus || `Fluxo de ${preferences.goal}`;
+    const todayFocus = isRestDay ? "Recuperação" : (todayCtx?.dayPlan?.focus || preferences.goal);
+    
+    const todayDesc = todayCtx?.dayPlan?.description || (isRestDay ? "Aproveite para recarregar suas energias." : `Uma sequência de ${preferences.duration} minutos adaptada para você.`);
+
     return (
       <div className="pb-24 pt-8 px-6 max-w-4xl mx-auto animate-fade-in">
         <header className="mb-10 flex justify-between items-end">
@@ -641,31 +829,40 @@ const App: React.FC = () => {
 
         {/* Hero Card: Routine of the Day */}
         <section className="mb-10">
-          <div className="bg-gradient-to-br from-sage-600 to-sage-800 rounded-3xl p-8 text-white shadow-xl relative overflow-hidden">
+          <div className={`rounded-3xl p-8 text-white shadow-xl relative overflow-hidden ${isRestDay ? 'bg-gradient-to-br from-stone-500 to-stone-700' : 'bg-gradient-to-br from-sage-600 to-sage-800'}`}>
             {/* Abstract blobs */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/4 blur-3xl" />
             <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full translate-y-1/2 -translate-x-1/4 blur-2xl" />
             
             <div className="relative z-10">
-              <div className="flex items-center gap-2 mb-4 text-sage-200">
-                 <Zap size={18} />
-                 <span className="text-sm font-medium tracking-wide uppercase">Recomendado para você</span>
+              <div className="flex items-center gap-2 mb-4 text-white/80">
+                 {isRestDay ? <Coffee size={18} /> : <Zap size={18} />}
+                 <span className="text-sm font-medium tracking-wide uppercase">{isRestDay ? "Dia de Descanso" : "Prática de Hoje"}</span>
               </div>
-              <h2 className="text-3xl font-semibold mb-2">Fluxo de {preferences.goal}</h2>
-              <p className="text-sage-100 mb-8 max-w-md">
-                Uma sequência de {preferences.duration} minutos adaptada para {preferences.age} anos
-                {preferences.discomforts.length > 0 && !preferences.discomforts.includes('Nenhum') 
-                 ? ` com cuidado para ${preferences.discomforts.join(', ')}.` 
-                 : '.'}
+              
+              {/* Dynamic Title based on Plan Day */}
+              <h2 className="text-3xl font-semibold mb-2">{todayPracticeName}</h2>
+              <div className="mb-6 flex items-center gap-2">
+                 <Badge color={isRestDay ? "green" : "blue"}>{todayFocus}</Badge>
+              </div>
+
+              <p className="text-white/80 mb-8 max-w-md line-clamp-2">
+                {todayDesc}
               </p>
               
               <div className="flex gap-4">
-                <Button onClick={handleGenerate} className="bg-white text-sage-800 hover:bg-sage-50 shadow-none border-0">
-                  <Play size={20} fill="currentColor" />
-                  Iniciar Prática
-                </Button>
-                {/* Changed: Edit Button now goes to Plan Editor instead of Routine Editor */}
-                <Button variant="outline" onClick={() => setView('PLAN_EDITOR')} className="border-white/30 text-white hover:bg-white/10" title="Editar Dia/Plano">
+                {!isRestDay ? (
+                    <Button onClick={handleGenerate} className="bg-white text-sage-800 hover:bg-sage-50 shadow-none border-0">
+                    <Play size={20} fill="currentColor" />
+                    Iniciar Prática
+                    </Button>
+                ) : (
+                    <Button variant="outline" className="border-white/50 text-white hover:bg-white/10 cursor-default">
+                        <Check size={20} /> Recuperação Ativa
+                    </Button>
+                )}
+                {/* Edit Button Opens Swap Modal for TODAY */}
+                <Button variant="outline" onClick={() => setIsSwapModalOpen(true)} className="border-white/30 text-white hover:bg-white/10" title="Trocar Prática de Hoje">
                   <Edit2 size={20} />
                 </Button>
               </div>
@@ -693,12 +890,10 @@ const App: React.FC = () => {
               </Card>
               <Card className="p-4 flex items-center justify-between cursor-pointer hover:border-sage-300 transition-colors" onClick={handleOpenPrefsEditor}>
                  <div>
-                    <p className="text-xs text-stone-400 uppercase font-bold">Foco Corporal</p>
-                    <p className="text-sage-800 font-medium">
-                       {preferences.discomforts.includes('Nenhum') || preferences.discomforts.length === 0 ? 'Geral' : 'Adaptado'}
-                    </p>
+                    <p className="text-xs text-stone-400 uppercase font-bold">Frequência</p>
+                    <p className="text-sage-800 font-medium">{preferences.frequency || 3}x Semana</p>
                  </div>
-                 <Activity size={20} className="text-stone-300" />
+                 <CalendarDays size={20} className="text-stone-300" />
               </Card>
            </div>
         </section>
@@ -755,6 +950,27 @@ const App: React.FC = () => {
                                `}
                              >
                                {l}
+                             </button>
+                          ))}
+                       </div>
+                    </div>
+
+                    {/* Frequency Section */}
+                    <div className="space-y-3">
+                       <h4 className="text-sm font-bold text-stone-500 uppercase">Frequência Semanal</h4>
+                       <div className="flex gap-2 overflow-x-auto pb-2">
+                          {[2, 3, 4, 5, 6, 7].map((d) => (
+                             <button
+                               key={d}
+                               onClick={() => setEditingPrefs({...editingPrefs, frequency: d})}
+                               className={`p-3 min-w-[3rem] rounded-xl border-2 transition-all text-sm font-medium
+                                 ${editingPrefs.frequency === d
+                                   ? 'border-sage-500 bg-sage-50 text-sage-800' 
+                                   : 'border-stone-100 bg-white text-stone-600 hover:border-sage-200'
+                                 }
+                               `}
+                             >
+                               {d}x
                              </button>
                           ))}
                        </div>
@@ -850,6 +1066,57 @@ const App: React.FC = () => {
               </div>
            </div>
         )}
+
+        {/* SWAP MODAL FOR DASHBOARD */}
+        {isSwapModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-fade-in flex flex-col max-h-[80vh]">
+              <div className="p-4 border-b border-stone-100 flex justify-between items-center">
+                 <h3 className="text-lg font-medium text-sage-900">Trocar Prática de Hoje</h3>
+                 <button onClick={() => setIsSwapModalOpen(false)} className="p-2 hover:bg-stone-100 rounded-full text-stone-500">
+                    <X size={20} />
+                 </button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto">
+                 <p className="text-stone-500 text-sm mb-4">Escolha o que você gostaria de fazer hoje em vez da programação original.</p>
+                 
+                 <div className="grid grid-cols-1 gap-3">
+                    <button 
+                       onClick={() => handleDashboardSwap('Rest')}
+                       className="flex items-center gap-4 p-4 rounded-xl border border-stone-200 hover:border-sage-400 hover:bg-stone-50 transition-all text-left group"
+                    >
+                       <div className="w-10 h-10 bg-stone-100 rounded-full flex items-center justify-center text-stone-500 group-hover:bg-white group-hover:text-stone-700">
+                          <Coffee size={20} />
+                       </div>
+                       <div>
+                          <p className="font-medium text-stone-800">Tirar o Dia de Folga</p>
+                          <p className="text-xs text-stone-400">Marcar como dia de descanso</p>
+                       </div>
+                    </button>
+
+                    <div className="my-2 border-t border-stone-100"></div>
+
+                    {swapOptions.map(opt => (
+                       <button 
+                         key={opt.label}
+                         onClick={() => handleDashboardSwap('Active', opt)}
+                         className="flex items-center gap-4 p-3 rounded-xl hover:bg-sage-50 transition-all text-left group"
+                       >
+                          <div className="w-10 h-10 bg-sage-100 rounded-full flex items-center justify-center text-sage-600 group-hover:bg-sage-200">
+                             {opt.icon}
+                          </div>
+                          <div>
+                             <p className="font-medium text-sage-900">{opt.label}</p>
+                             <p className="text-xs text-stone-500">{opt.desc}</p>
+                          </div>
+                       </button>
+                    ))}
+                 </div>
+              </div>
+           </div>
+        </div>
+      )}
       </div>
     );
   };
@@ -975,8 +1242,47 @@ const App: React.FC = () => {
                    </div>
 
                    <Button onClick={() => setWeeklyReport(null)} className="w-full">
-                       Iniciar Nova Semana
+                       {showGraduation ? "Ver Próximo Passo" : "Iniciar Nova Semana"}
                    </Button>
+              </div>
+          </div>
+      )}
+
+      {/* Graduation / Evolution Modal */}
+      {!weeklyReport && showGraduation && activePlan && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl animate-fade-in text-center p-8 relative overflow-hidden">
+                   {/* Confettiish effect */}
+                   <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_120%,rgba(120,113,108,0.1),transparent)] pointer-events-none"></div>
+                   
+                   <div className="w-24 h-24 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-6 animate-bounce-gentle">
+                       <Trophy size={48} className="text-yellow-500" />
+                   </div>
+
+                   <h2 className="text-3xl font-light text-sage-900 mb-2">Jornada Concluída!</h2>
+                   <p className="text-stone-500 mb-6">
+                       Você completou as 4 semanas de <strong>{activePlan.name}</strong>.
+                   </p>
+                   
+                   <div className="bg-stone-50 p-6 rounded-2xl mb-8 border border-stone-100">
+                       <p className="text-sm text-stone-600 mb-4">
+                           Seu corpo e mente evoluíram. É hora de dar o próximo passo para manter o fluxo de crescimento.
+                       </p>
+                       <div className="flex items-center justify-center gap-2 text-sage-700 font-bold">
+                           <span>Nível Atual</span>
+                           <ArrowRight size={16} />
+                           <span className="text-sage-900">Próximo Nível</span>
+                       </div>
+                   </div>
+
+                   <div className="flex flex-col gap-3">
+                       <Button onClick={handleEvolvePlan} className="w-full justify-center bg-gradient-to-r from-sage-600 to-sage-500 hover:from-sage-700 hover:to-sage-600 shadow-lg shadow-sage-200 border-0">
+                           <ArrowUpCircle size={20} className="mr-2" /> Evoluir Jornada
+                       </Button>
+                       <Button variant="ghost" onClick={() => setShowGraduation(false)}>
+                           Continuar no mesmo nível
+                       </Button>
+                   </div>
               </div>
           </div>
       )}

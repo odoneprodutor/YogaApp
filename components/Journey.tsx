@@ -1,9 +1,11 @@
+
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { UserPreferences, SessionRecord, TrainingPlan, PlanDay, Memory } from '../types';
 import { createPersonalizedPlan } from '../services/planEngine';
 import { Calendar } from './Calendar';
 import { Card, Badge, Button } from './ui';
-import { Calendar as CalendarIcon, Target, Trophy, Clock, Check, Edit3, Repeat, Coffee, Zap, X, Activity, Play, CheckCircle, Lightbulb, Info, Trash2, CalendarRange, List, Plus, Flame, Heart, Droplets, wind, Mountain } from 'lucide-react';
+import { Calendar as CalendarIcon, Target, Trophy, Clock, Check, Edit3, Repeat, Coffee, Zap, X, Activity, Play, CheckCircle, Lightbulb, Info, Trash2, CalendarRange, List, Plus, Flame, Heart, Droplets, Wind, Mountain, Award } from 'lucide-react';
 
 interface JourneyProps {
   preferences: UserPreferences;
@@ -47,38 +49,12 @@ export const Journey: React.FC<JourneyProps> = ({
   // Week Selector State
   const [activeWeekTab, setActiveWeekTab] = useState(0);
 
-  // Memories/Gallery State (View Only now)
-  const [memories, setMemories] = useState<Memory[]>([]);
-
-  // Load Memories
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_MEMORIES);
-    if (saved) {
-        try {
-            setMemories(JSON.parse(saved));
-        } catch (e) { console.error(e); }
-    }
-  }, []);
-
-  const saveMemories = (entries: Memory[]) => {
-      setMemories(entries);
-      localStorage.setItem(STORAGE_KEY_MEMORIES, JSON.stringify(entries));
-  };
-
-  const handleDeleteMemory = (id: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (confirm('Tem certeza que deseja apagar esta memória?')) {
-          const filtered = memories.filter(m => m.id !== id);
-          saveMemories(filtered);
-      }
-  };
-
   // Use custom plan if available, otherwise derive from goals
   const plan = useMemo(() => {
     return customPlan || createPersonalizedPlan(preferences);
   }, [preferences, customPlan]);
   
-  // Calculate progress
+  // Calculate progress for stats
   const totalSessions = history.length;
   const totalMinutes = history.reduce((acc, curr) => acc + curr.duration, 0);
 
@@ -118,27 +94,6 @@ export const Journey: React.FC<JourneyProps> = ({
   const selectedDayPlan: (PlanDay & { weekLabel?: number }) | null = selectedDateStr ? getDayPlan(selectedDateStr) : null;
   const isToday = selectedDateStr === new Date().toISOString().split('T')[0];
 
-  // Logic to determine Check-in or Review Availability
-  const checkinStatus = useMemo(() => {
-      if (!preferences.startDate) return 'CHECKIN'; // New users see it initially on Day 1 (today)
-      
-      const start = new Date(preferences.startDate);
-      start.setHours(0,0,0,0);
-      const today = new Date();
-      today.setHours(0,0,0,0);
-      
-      const diffTime = today.getTime() - start.getTime();
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-      
-      const dayOfCycle = diffDays % 7;
-      
-      // Day 0 = Start of week (Check-in)
-      // Day 6 = End of week (Review)
-      if (dayOfCycle === 0) return 'CHECKIN';
-      if (dayOfCycle === 6) return 'REVIEW';
-      return null;
-  }, [preferences.startDate]);
-
   // Sync active week tab with selected date if user clicks calendar
   useEffect(() => {
       if (selectedDateStr) {
@@ -147,7 +102,7 @@ export const Journey: React.FC<JourneyProps> = ({
       }
   }, [selectedDateStr]);
 
-  const handleSwapPractice = (type: 'Active' | 'Rest', focus?: string) => {
+  const handleSwapPractice = (type: 'Active' | 'Rest', practice?: {label: string, desc: string}) => {
      if (!selectedDateStr) return;
      const date = new Date(selectedDateStr);
      const dayIndex = date.getDay();
@@ -159,15 +114,19 @@ export const Journey: React.FC<JourneyProps> = ({
         newDay = {
             dayOfWeek: dayIndex,
             activityType: 'Rest',
-            focus: 'Descanso',
+            practiceName: 'Descanso',
+            focus: 'Recuperação',
             description: 'Dia de recuperação escolhido por você.'
         };
      } else {
+        const name = practice?.label || 'Prática Livre';
+        const desc = practice?.desc || 'Sessão personalizada.';
         newDay = {
             dayOfWeek: dayIndex,
             activityType: 'Active',
-            focus: focus || 'Prática Livre',
-            description: 'Sessão personalizada trocada manualmente.'
+            practiceName: name,
+            focus: 'Personalizado',
+            description: `Sessão trocada manualmente: ${desc}`
         };
      }
      
@@ -200,71 +159,17 @@ export const Journey: React.FC<JourneyProps> = ({
     { label: 'Core Blast', icon: <Flame size={18}/>, desc: 'Foco abdominal intenso' },
     { label: 'Cardio Yoga', icon: <Heart size={18}/>, desc: 'Fluxo rápido para suar' },
     { label: 'Detox Twist', icon: <Droplets size={18}/>, desc: 'Torções para digestão' },
-    { label: 'Respiração Profunda', icon: <wind size={18}/>, desc: 'Pranayamas e calma' },
+    { label: 'Respiração Profunda', icon: <Wind size={18}/>, desc: 'Pranayamas e calma' },
     { label: 'Equilíbrio & Foco', icon: <Mountain size={18}/>, desc: 'Posturas de pé e concentração' },
   ];
+
+  const completionPercent = plan.progress || 0;
 
   return (
     <div className="pb-24 pt-8 px-4 max-w-5xl mx-auto animate-fade-in relative">
       <div className="mb-6">
         <h1 className="text-3xl font-light text-sage-900">Sua Jornada</h1>
         <p className="text-stone-500">Acompanhe seu progresso e siga seu plano.</p>
-      </div>
-
-      {/* --- STORIES & MEMORIES BAR --- */}
-      <div className="flex gap-4 overflow-x-auto pb-6 mb-2 no-scrollbar items-start">
-        
-        {/* 1. Weekly Checkin / Review (Conditional) */}
-        {checkinStatus && (
-            <button 
-                onClick={() => onStartCheckin(checkinStatus === 'CHECKIN' ? 'WEEKLY_CHECKIN' : 'WEEKLY_REVIEW')}
-                className="group flex flex-col items-center gap-2 min-w-[72px] cursor-pointer"
-            >
-                <div className={`w-16 h-16 rounded-full p-[3px] bg-gradient-to-tr ${checkinStatus === 'CHECKIN' ? 'from-yellow-400 via-orange-500 to-red-500' : 'from-indigo-400 via-purple-500 to-pink-500'} group-hover:scale-105 transition-transform shadow-sm`}>
-                    <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border-[3px] border-white text-xs text-center font-bold text-stone-600 leading-tight">
-                        {checkinStatus === 'CHECKIN' ? 'Início Semana' : 'Review Final'}
-                    </div>
-                </div>
-                <span className="text-[11px] font-medium text-stone-600 truncate max-w-full">
-                    {checkinStatus === 'CHECKIN' ? 'Intenção' : 'Resultado'}
-                </span>
-            </button>
-        )}
-
-        {/* 2. Memories Gallery (Display Only) */}
-        {memories.map(memory => (
-            <div 
-                key={memory.id}
-                className="group flex flex-col items-center gap-2 min-w-[72px] cursor-pointer animate-fade-in relative"
-            >
-                <div className="w-16 h-16 rounded-full p-[2px] bg-stone-200 group-hover:scale-105 transition-transform shadow-sm overflow-hidden relative">
-                    <img 
-                        src={memory.mediaUrl} 
-                        className="w-full h-full object-cover rounded-full border-2 border-white" 
-                        alt="Memória" 
-                        onError={(e) => {
-                            (e.target as HTMLImageElement).src = 'https://placehold.co/100x100?text=Error';
-                        }}
-                    />
-                    {memory.type === 'video' && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                            <Play size={16} className="text-white fill-current" />
-                        </div>
-                    )}
-                </div>
-                <span className="text-[11px] font-medium text-stone-600 truncate max-w-[80px] text-center px-1">
-                    {new Date(memory.date).toLocaleDateString(undefined, {day: '2-digit', month: '2-digit'})}
-                </span>
-                
-                {/* Delete Button (visible on hover) */}
-                <button 
-                    onClick={(e) => handleDeleteMemory(memory.id, e)}
-                    className="absolute top-0 right-0 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity scale-75 shadow-md"
-                >
-                    <Trash2 size={12} />
-                </button>
-            </div>
-        ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -343,8 +248,10 @@ export const Journey: React.FC<JourneyProps> = ({
              <div className="absolute top-0 right-0 w-32 h-32 bg-sage-50 rounded-full translate-x-1/2 -translate-y-1/2" />
              
              <div className="relative z-10">
-               <div className="flex items-center justify-between mb-4">
-                 <Badge color="blue">Plano Atual</Badge>
+               <div className="flex items-center justify-between mb-2">
+                 <Badge color={plan.status === 'completed' ? 'green' : 'blue'}>
+                     {plan.status === 'completed' ? 'Concluído' : 'Plano Atual'}
+                 </Badge>
                  <div className="flex gap-2">
                     {/* Switch Plan Button */}
                     <button
@@ -366,7 +273,34 @@ export const Journey: React.FC<JourneyProps> = ({
                </div>
                
                <h3 className="text-2xl font-light text-sage-900 mb-1">{plan.name}</h3>
-               <p className="text-sm text-stone-500 mb-6 line-clamp-2">{plan.description}</p>
+               <p className="text-sm text-stone-500 mb-4 line-clamp-2">{plan.description}</p>
+               
+               {/* Progress Bar */}
+               <div className="mb-6">
+                   <div className="flex justify-between text-xs font-medium text-stone-500 mb-1">
+                       <span>Progresso</span>
+                       <span>{completionPercent}%</span>
+                   </div>
+                   <div className="w-full h-2 bg-stone-100 rounded-full overflow-hidden">
+                       <div 
+                           className="h-full bg-sage-500 rounded-full transition-all duration-1000 ease-out"
+                           style={{ width: `${completionPercent}%` }}
+                       />
+                   </div>
+               </div>
+               
+               {plan.status === 'completed' && (
+                   <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-6 text-center animate-fade-in">
+                       <div className="flex justify-center mb-2">
+                           <Award className="text-yellow-600" size={24} />
+                       </div>
+                       <p className="font-bold text-yellow-800 text-sm">Jornada Completa!</p>
+                       <p className="text-xs text-yellow-700">Você finalizou este plano. Hora de criar um novo desafio?</p>
+                       <Button onClick={() => setIsManagePlansModalOpen(true)} className="mt-3 w-full bg-yellow-600 hover:bg-yellow-700 border-0 text-white shadow-none">
+                           Ver Próxima Evolução
+                       </Button>
+                   </div>
+               )}
 
                <div className="bg-sage-50 rounded-xl p-5 mb-6 relative">
                  <div className="flex justify-between items-start mb-2">
@@ -401,8 +335,10 @@ export const Journey: React.FC<JourneyProps> = ({
                        <Target size={20} className="text-sage-700"/>
                      </div>
                      <div>
-                       <p className="font-medium">{selectedDayPlan?.focus}</p>
-                       <p className="text-xs text-stone-500 line-clamp-1">{selectedDayPlan?.description}</p>
+                       <p className="font-medium">{selectedDayPlan?.practiceName || selectedDayPlan?.focus}</p>
+                       <p className="text-xs text-stone-500 line-clamp-1">
+                           {selectedDayPlan?.practiceName && selectedDayPlan.focus ? selectedDayPlan.focus : selectedDayPlan?.description}
+                       </p>
                      </div>
                    </div>
                  )}
@@ -494,7 +430,7 @@ export const Journey: React.FC<JourneyProps> = ({
                     </div>
                     <div className="flex-1 border-b border-stone-100 pb-2 border-none">
                       <span className={isRest ? 'text-stone-400' : 'text-stone-700 font-medium'}>
-                        {isRest ? 'Descanso' : day.focus}
+                        {isRest ? 'Descanso' : (day.practiceName || day.focus)}
                       </span>
                     </div>
                  </div>
@@ -538,7 +474,7 @@ export const Journey: React.FC<JourneyProps> = ({
                     {swapOptions.map(opt => (
                        <button 
                          key={opt.label}
-                         onClick={() => handleSwapPractice('Active', opt.label)}
+                         onClick={() => handleSwapPractice('Active', opt)}
                          className="flex items-center gap-4 p-3 rounded-xl hover:bg-sage-50 transition-all text-left group"
                        >
                           <div className="w-10 h-10 bg-sage-100 rounded-full flex items-center justify-center text-sage-600 group-hover:bg-sage-200">
@@ -575,6 +511,7 @@ export const Journey: React.FC<JourneyProps> = ({
                     <div className="space-y-3">
                         {plans.map(p => {
                             const isActive = p.id === activePlanId;
+                            const isCompleted = p.status === 'completed';
                             return (
                                 <div 
                                     key={p.id}
@@ -585,12 +522,14 @@ export const Journey: React.FC<JourneyProps> = ({
                                             ? 'border-sage-500 bg-sage-50 shadow-sm' 
                                             : 'border-stone-100 bg-white hover:border-sage-300'
                                         }
+                                        ${isCompleted ? 'opacity-80' : ''}
                                     `}
                                 >
                                     <div className="flex justify-between items-start">
                                         <div>
-                                            <h4 className={`font-medium ${isActive ? 'text-sage-900' : 'text-stone-700'}`}>
+                                            <h4 className={`font-medium flex items-center gap-2 ${isActive ? 'text-sage-900' : 'text-stone-700'}`}>
                                                 {p.name}
+                                                {isCompleted && <Badge color="green">Concluído</Badge>}
                                             </h4>
                                             <p className="text-xs text-stone-500 mt-1 line-clamp-1">{p.description}</p>
                                         </div>
@@ -600,9 +539,12 @@ export const Journey: React.FC<JourneyProps> = ({
                                             </div>
                                         )}
                                     </div>
+                                    
+                                    {/* Mini Progress Bar in List */}
+                                    <div className="mt-3 w-full h-1 bg-stone-100 rounded-full overflow-hidden">
+                                        <div className="h-full bg-sage-400" style={{width: `${p.progress || 0}%`}}></div>
+                                    </div>
 
-                                    {/* Delete button (only show if active plan count > 1 OR it's not the active one - allowing deletion of non-actives always) */}
-                                    {/* Actually, user can delete the active one, logic in App handles setting new active. */}
                                     <button
                                         onClick={(e) => handleDelete(p.id, e)}
                                         className="absolute bottom-2 right-2 p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
