@@ -1,10 +1,9 @@
-
 import React, { useState, useMemo } from 'react';
 import { UserPreferences, SessionRecord, TrainingPlan, PlanDay } from '../types';
 import { createPersonalizedPlan } from '../services/planEngine';
 import { Calendar } from './Calendar';
 import { Card, Badge, Button } from './ui';
-import { Calendar as CalendarIcon, Target, Trophy, Clock, Check, Edit3, Repeat, Coffee, Zap, X, Activity } from 'lucide-react';
+import { Calendar as CalendarIcon, Target, Trophy, Clock, Check, Edit3, Repeat, Coffee, Zap, X, Activity, Play, CheckCircle } from 'lucide-react';
 
 interface JourneyProps {
   preferences: UserPreferences;
@@ -13,9 +12,10 @@ interface JourneyProps {
   onStartRoutine: () => void;
   onEditPlan: () => void; // Trigger for editing whole plan
   onUpdateDay: (dayIndex: number, day: PlanDay) => void; // Update specific day
+  onMarkComplete: (dateStr: string, planDay: PlanDay) => void;
 }
 
-export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPlan, onStartRoutine, onEditPlan, onUpdateDay }) => {
+export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPlan, onStartRoutine, onEditPlan, onUpdateDay, onMarkComplete }) => {
   const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date());
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(new Date().toISOString().split('T')[0]);
   const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
@@ -203,10 +203,26 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
                  )}
                </div>
 
-               {isToday && selectedDayPlan?.activityType === 'Active' && (
-                 <Button onClick={onStartRoutine} className="w-full justify-center">
-                   Iniciar Prática de Hoje
-                 </Button>
+               {selectedDayPlan?.activityType === 'Active' && (
+                  <div className="flex flex-col gap-3">
+                     {isToday && (
+                       <Button onClick={onStartRoutine} className="w-full justify-center">
+                         <Play size={20} fill="currentColor" /> Iniciar Agora
+                       </Button>
+                     )}
+                     <Button 
+                        variant={isToday ? "outline" : "primary"}
+                        onClick={() => {
+                           if(selectedDateStr && selectedDayPlan) {
+                              onMarkComplete(selectedDateStr, selectedDayPlan);
+                           }
+                        }}
+                        className={`w-full justify-center ${!isToday ? 'mt-2' : ''}`}
+                     >
+                       <CheckCircle size={20} />
+                       {isToday ? "Já fiz hoje" : "Marcar como Concluído"}
+                     </Button>
+                  </div>
                )}
              </div>
           </div>

@@ -1,9 +1,16 @@
 
+
 export type Difficulty = 'Iniciante' | 'Intermediário' | 'Avançado';
 export type Category = 'Aquecimento' | 'Pé' | 'Sentado' | 'Inversão' | 'Restaurativa' | 'Core' | 'Finalização';
 export type Goal = 'Flexibilidade' | 'Força' | 'Relaxamento' | 'Alívio de Dor';
 export type Duration = 15 | 30 | 45;
 export type Discomfort = 'Lombar' | 'Joelhos' | 'Pescoço/Ombros' | 'Punhos' | 'Nenhum';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+}
 
 export interface Media {
   thumbnailUrl: string;
@@ -23,6 +30,7 @@ export interface Pose {
 }
 
 export interface UserPreferences {
+  userId?: string; // Link preferences to a user
   level: Difficulty;
   goal: Goal;
   duration: Duration;
@@ -44,6 +52,7 @@ export interface Routine {
 // New Types for Calendar and Plan
 export interface SessionRecord {
   id: string;
+  userId?: string; // Link session to a user
   date: string; // ISO String YYYY-MM-DD
   routineName: string;
   duration: number; // minutes
@@ -59,9 +68,10 @@ export interface PlanDay {
 
 export interface TrainingPlan {
   id: string;
+  userId?: string; // Link plan to a user
   name: string;
   description: string;
   schedule: PlanDay[]; // 7 items, index 0 is Sunday
 }
 
-export type ViewState = 'ONBOARDING' | 'DASHBOARD' | 'PLAYER' | 'LIBRARY' | 'JOURNEY' | 'PLAN_EDITOR' | 'ROUTINE_EDITOR';
+export type ViewState = 'AUTH' | 'ONBOARDING' | 'DASHBOARD' | 'PLAYER' | 'LIBRARY' | 'JOURNEY' | 'PLAN_EDITOR' | 'ROUTINE_EDITOR';

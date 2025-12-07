@@ -1,13 +1,14 @@
-
 import React, { useState, useEffect } from 'react';
-import { UserPreferences, Routine, ViewState, Difficulty, Goal, Duration, SessionRecord, TrainingPlan, Discomfort, PlanDay } from './types';
+import { UserPreferences, Routine, ViewState, Difficulty, Goal, Duration, SessionRecord, TrainingPlan, Discomfort, PlanDay, User } from './types';
 import { generateRoutine } from './services/routineEngine';
 import { createPersonalizedPlan } from './services/planEngine';
+import { authService } from './services/auth';
 import { PoseLibrary } from './components/PoseLibrary';
 import { RoutinePlayer } from './components/RoutinePlayer';
 import { Journey } from './components/Journey';
 import { PlanEditor } from './components/PlanEditor';
 import { RoutineEditor } from './components/RoutineEditor';
+import { AuthScreen } from './components/AuthScreen';
 import { Button, Card, Badge } from './components/ui';
 import { 
   LayoutDashboard, 
@@ -19,15 +20,25 @@ import {
   Activity,
   Smile,
   Edit2,
-  User,
+  User as UserIcon,
   AlertCircle,
   ArrowRight,
-  Check
+  Check,
+  LogOut
 } from 'lucide-react';
 
+// Storage keys helper
+const getPrefsKey = (userId: string) => `yogaflow_prefs_${userId}`;
+const getPlanKey = (userId: string) => `yogaflow_plan_${userId}`;
+const getHistoryKey = (userId: string) => `yogaflow_history_${userId}`;
+
 const App: React.FC = () => {
-  // State
-  const [view, setView] = useState<ViewState>('ONBOARDING');
+  // Auth State
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+
+  // App State
+  const [view, setView] = useState<ViewState>('AUTH'); // Start at Auth check
   const [preferences, setPreferences] = useState<UserPreferences>({
     level: 'Iniciante',
     goal: 'Relaxamento',
@@ -38,45 +49,119 @@ const App: React.FC = () => {
     hasOnboarded: false
   });
   
-  // Custom Plan State (overrides default engine if set)
   const [customPlan, setCustomPlan] = useState<TrainingPlan | null>(null);
-
-  // Initialize with some fake history for demonstration if empty
-  const [history, setHistory] = useState<SessionRecord[]>(() => {
-    // Generate some past data for the calendar demo
-    const past = [];
-    const today = new Date();
-    for (let i = 1; i < 5; i++) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - (i * 2));
-      past.push({
-        id: `past-${i}`,
-        date: d.toISOString().split('T')[0],
-        routineName: i % 2 === 0 ? 'Fluxo de Relaxamento' : 'Fluxo de Flexibilidade',
-        duration: 15
-      });
-    }
-    return past;
-  });
-
+  const [history, setHistory] = useState<SessionRecord[]>([]);
   const [currentRoutine, setCurrentRoutine] = useState<Routine | null>(null);
-  
-  // Onboarding Step State
   const [onboardingStep, setOnboardingStep] = useState(0);
 
-  const handleOnboardingComplete = () => {
-    // Generate the personalized plan immediately upon finishing onboarding
-    const generatedPlan = createPersonalizedPlan(preferences);
-    setCustomPlan(generatedPlan);
+  // --- Auth & Data Loading Effects ---
+
+  // 1. Check Session on Mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      const savedUser = authService.getCurrentUser();
+      if (savedUser) {
+        handleUserAuthenticated(savedUser);
+      } else {
+        setView('AUTH');
+        setIsAuthChecking(false);
+      }
+    };
+    checkAuth();
+  }, []);
+
+  // 2. Load Data when User Changes
+  const handleUserAuthenticated = (authenticatedUser: User) => {
+    setUser(authenticatedUser);
     
-    setPreferences(prev => ({ ...prev, hasOnboarded: true, startDate: new Date().toISOString() }));
+    // Load User Data from LocalStorage
+    const prefsStr = localStorage.getItem(getPrefsKey(authenticatedUser.id));
+    const planStr = localStorage.getItem(getPlanKey(authenticatedUser.id));
+    const historyStr = localStorage.getItem(getHistoryKey(authenticatedUser.id));
+
+    if (prefsStr) {
+      const loadedPrefs = JSON.parse(prefsStr);
+      setPreferences(loadedPrefs);
+      
+      if (loadedPrefs.hasOnboarded) {
+        setView('DASHBOARD');
+      } else {
+        setView('ONBOARDING');
+      }
+    } else {
+      // New user data
+      setPreferences({ ...preferences, userId: authenticatedUser.id, hasOnboarded: false });
+      setView('ONBOARDING');
+    }
+
+    if (planStr) setCustomPlan(JSON.parse(planStr));
+    
+    if (historyStr) {
+      setHistory(JSON.parse(historyStr));
+    } else {
+      // Demo history for new users just to show UI (optional, remove for prod)
+      setHistory([]);
+    }
+
+    setIsAuthChecking(false);
+  };
+
+  const handleLogout = async () => {
+    await authService.logout();
+    setUser(null);
+    setPreferences({
+      level: 'Iniciante',
+      goal: 'Relaxamento',
+      duration: 15,
+      discomforts: [],
+      hasOnboarded: false
+    });
+    setHistory([]);
+    setCustomPlan(null);
+    setView('AUTH');
+  };
+
+  // --- Persistence Helpers ---
+
+  const savePreferences = (newPrefs: UserPreferences) => {
+    setPreferences(newPrefs);
+    if (user) {
+      localStorage.setItem(getPrefsKey(user.id), JSON.stringify(newPrefs));
+    }
+  };
+
+  const saveCustomPlan = (newPlan: TrainingPlan) => {
+    setCustomPlan(newPlan);
+    if (user) {
+      localStorage.setItem(getPlanKey(user.id), JSON.stringify(newPlan));
+    }
+  };
+
+  const saveHistory = (newHistory: SessionRecord[]) => {
+    setHistory(newHistory);
+    if (user) {
+      localStorage.setItem(getHistoryKey(user.id), JSON.stringify(newHistory));
+    }
+  };
+
+  // --- Handlers ---
+
+  const handleOnboardingComplete = () => {
+    const generatedPlan = createPersonalizedPlan(preferences);
+    saveCustomPlan(generatedPlan);
+    
+    const finalPrefs = { 
+      ...preferences, 
+      hasOnboarded: true, 
+      startDate: new Date().toISOString() 
+    };
+    savePreferences(finalPrefs);
     setView('DASHBOARD');
   };
 
   const handleGenerate = () => {
     const routine = generateRoutine(preferences);
     setCurrentRoutine(routine);
-    // Instead of going straight to PLAYER, go to ROUTINE_EDITOR
     setView('ROUTINE_EDITOR');
   };
 
@@ -84,24 +169,33 @@ const App: React.FC = () => {
     if (currentRoutine) {
       const newRecord: SessionRecord = {
         id: Date.now().toString(),
+        userId: user?.id,
         date: new Date().toISOString().split('T')[0],
         routineName: currentRoutine.name,
         duration: Math.round(currentRoutine.totalDuration / 60)
       };
-      setHistory(prev => [newRecord, ...prev]);
+      saveHistory([newRecord, ...history]);
     }
-    setView('JOURNEY'); // Redirect to Journey (Calendar) after completion
+    setView('JOURNEY');
   };
 
-  // Function to update a specific day in the plan (swapping practice)
+  const handleMarkDayComplete = (dateStr: string, planDay: PlanDay) => {
+    const newRecord: SessionRecord = {
+      id: Date.now().toString(),
+      userId: user?.id,
+      date: dateStr,
+      routineName: planDay.focus || `Prática de ${preferences.goal}`,
+      duration: preferences.duration // Assume user did the standard duration
+    };
+    saveHistory([newRecord, ...history]);
+  };
+
   const handleUpdateDay = (dayIndex: number, newDayData: PlanDay) => {
-    // Ensure we have a mutable plan object based on current prefs if one doesn't exist specifically
     const activePlan = customPlan || createPersonalizedPlan(preferences);
-    
     const newSchedule = [...activePlan.schedule];
     newSchedule[dayIndex] = newDayData;
     
-    setCustomPlan({
+    saveCustomPlan({
       ...activePlan,
       schedule: newSchedule
     });
@@ -110,17 +204,15 @@ const App: React.FC = () => {
   // --- Views ---
 
   const renderOnboarding = () => {
-    // Steps definition
-    // 0: Intro/Bio (Age, Weight)
-    // 1: Discomforts
-    // 2: Experience Level
-    // 3: Goal
-    // 4: Duration
-
+    // Steps definition: 0: Intro/Bio, 1: Discomforts, 2: Experience Level, 3: Goal, 4: Duration
     const nextStep = () => setOnboardingStep(prev => prev + 1);
     const prevStep = () => setOnboardingStep(prev => Math.max(0, prev - 1));
-
     const progress = ((onboardingStep + 1) / 5) * 100;
+
+    // Helper wrapper to update state and auto save to LS for draft resilience
+    const updatePrefs = (updates: Partial<UserPreferences>) => {
+      setPreferences(prev => ({...prev, ...updates}));
+    };
 
     return (
       <div className="min-h-screen bg-sage-50 flex items-center justify-center p-6">
@@ -136,11 +228,11 @@ const App: React.FC = () => {
               <div className="animate-fade-in">
                 <div className="flex justify-center mb-6">
                   <div className="w-16 h-16 bg-sage-100 rounded-full flex items-center justify-center">
-                    <User size={32} className="text-sage-600" />
+                    <UserIcon size={32} className="text-sage-600" />
                   </div>
                 </div>
                 <h2 className="text-2xl font-medium text-center text-sage-900 mb-2">Sobre Você</h2>
-                <p className="text-center text-stone-500 mb-8">Para personalizarmos sua jornada, precisamos conhecer um pouco sobre seu corpo.</p>
+                <p className="text-center text-stone-500 mb-8">Olá {user?.name.split(' ')[0]}, precisamos conhecer um pouco sobre seu corpo.</p>
                 
                 <div className="space-y-6">
                   <div>
@@ -148,7 +240,7 @@ const App: React.FC = () => {
                     <input 
                       type="number" 
                       value={preferences.age || ''}
-                      onChange={(e) => setPreferences(prev => ({...prev, age: parseInt(e.target.value) || undefined}))}
+                      onChange={(e) => updatePrefs({ age: parseInt(e.target.value) || undefined })}
                       className="w-full p-4 bg-stone-50 border border-stone-200 rounded-xl focus:ring-2 focus:ring-sage-400 focus:outline-none text-lg"
                       placeholder="Ex: 30"
                     />
@@ -158,7 +250,7 @@ const App: React.FC = () => {
                     <input 
                       type="number" 
                       value={preferences.weight || ''}
-                      onChange={(e) => setPreferences(prev => ({...prev, weight: parseInt(e.target.value) || undefined}))}
+                      onChange={(e) => updatePrefs({ weight: parseInt(e.target.value) || undefined })}
                       className="w-full p-4 bg-stone-50 border border-stone-200 rounded-xl focus:ring-2 focus:ring-sage-400 focus:outline-none text-lg"
                       placeholder="Ex: 70"
                     />
@@ -168,6 +260,10 @@ const App: React.FC = () => {
                 <Button onClick={nextStep} disabled={!preferences.age} className="w-full mt-8">
                   Continuar <ArrowRight size={18} />
                 </Button>
+                
+                <div className="mt-4 text-center">
+                  <button onClick={handleLogout} className="text-sm text-stone-400 hover:text-stone-600">Sair da conta</button>
+                </div>
               </div>
             )}
 
@@ -192,16 +288,13 @@ const App: React.FC = () => {
                         key={option}
                         onClick={() => {
                           if (isNone) {
-                            setPreferences(prev => ({ ...prev, discomforts: ['Nenhum'] }));
+                            updatePrefs({ discomforts: ['Nenhum'] });
                           } else {
-                            setPreferences(prev => {
-                              const newDiscomforts = prev.discomforts.filter(d => d !== 'Nenhum');
-                              if (newDiscomforts.includes(option)) {
-                                return { ...prev, discomforts: newDiscomforts.filter(d => d !== option) };
-                              } else {
-                                return { ...prev, discomforts: [...newDiscomforts, option] };
-                              }
-                            });
+                            const current = preferences.discomforts.filter(d => d !== 'Nenhum');
+                            const newDiscomforts = current.includes(option)
+                              ? current.filter(d => d !== option)
+                              : [...current, option];
+                            updatePrefs({ discomforts: newDiscomforts });
                           }
                         }}
                         className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-2 text-sm font-medium h-24
@@ -243,7 +336,7 @@ const App: React.FC = () => {
                     <button
                       key={opt}
                       onClick={() => {
-                        setPreferences(prev => ({ ...prev, level: opt }));
+                        updatePrefs({ level: opt });
                         nextStep();
                       }}
                       className="w-full p-4 bg-white rounded-xl shadow-sm border border-stone-200 hover:border-sage-400 hover:shadow-md transition-all text-left flex justify-between items-center group"
@@ -275,7 +368,7 @@ const App: React.FC = () => {
                     <button
                       key={opt}
                       onClick={() => {
-                        setPreferences(prev => ({ ...prev, goal: opt }));
+                        updatePrefs({ goal: opt });
                         nextStep();
                       }}
                       className="w-full p-4 bg-white rounded-xl shadow-sm border border-stone-200 hover:border-sage-400 hover:shadow-md transition-all text-left flex justify-between items-center group"
@@ -307,13 +400,12 @@ const App: React.FC = () => {
                     <button
                       key={opt}
                       onClick={() => {
-                        setPreferences(prev => ({ ...prev, duration: opt }));
-                        // We need a slight delay or just handle completion here
+                        // Immediately update and finish
                         const newPrefs = { ...preferences, duration: opt };
+                        // We need to call the final saver manually here because of state batching issues if we just relied on updatePrefs
                         setPreferences(newPrefs);
-                        // Trigger completion
-                        // We'll call handleOnboardingComplete but we need to ensure state is updated.
-                        // For safety, we can just button click.
+                        // Trigger completion flow next tick
+                        setTimeout(() => handleOnboardingComplete(), 50);
                       }}
                       className={`w-full p-4 bg-white rounded-xl shadow-sm border transition-all text-left flex justify-between items-center group
                         ${preferences.duration === opt ? 'border-sage-500 ring-1 ring-sage-500' : 'border-stone-200 hover:border-sage-400'}
@@ -344,14 +436,17 @@ const App: React.FC = () => {
       <div className="pb-24 pt-8 px-6 max-w-4xl mx-auto animate-fade-in">
         <header className="mb-10 flex justify-between items-end">
           <div>
-            <h1 className="text-4xl font-light text-sage-900 mb-2">Olá, Yogi</h1>
+            <h1 className="text-4xl font-light text-sage-900 mb-2">Olá, {user?.name.split(' ')[0]}</h1>
             <p className="text-stone-500">Pronto para encontrar seu centro hoje?</p>
           </div>
-          <div className="hidden md:block">
-            <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-sm border border-stone-100">
+          <div className="flex flex-col items-end gap-2">
+            <div className="hidden md:flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-sm border border-stone-100">
               <Smile size={20} className="text-orange-400" />
               <span className="text-sm font-medium text-stone-600">{history.length} Sessões Completadas</span>
             </div>
+            <button onClick={handleLogout} className="text-xs text-stone-400 hover:text-red-500 flex items-center gap-1">
+               <LogOut size={12} /> Sair
+            </button>
           </div>
         </header>
 
@@ -380,7 +475,6 @@ const App: React.FC = () => {
                   <Play size={20} fill="currentColor" />
                   Iniciar Prática
                 </Button>
-                {/* Direct Customizer button also available in Dashboard now */}
                 <Button variant="outline" onClick={handleGenerate} className="border-white/30 text-white hover:bg-white/10">
                   <Edit2 size={20} />
                 </Button>
@@ -423,6 +517,16 @@ const App: React.FC = () => {
   };
 
   // --- Main Render Logic ---
+
+  if (view === 'AUTH') {
+    return <AuthScreen onSuccess={handleUserAuthenticated} />;
+  }
+  
+  // Guard check (should be handled by view state logic but safety first)
+  if (!user && view !== 'AUTH') {
+      setView('AUTH');
+      return null;
+  }
   
   if (view === 'PLAYER' && currentRoutine) {
     return (
@@ -453,20 +557,15 @@ const App: React.FC = () => {
         initialPlan={customPlan || createPersonalizedPlan(preferences)}
         onCancel={() => setView('JOURNEY')}
         onSave={(updatedPlan) => {
-          setCustomPlan(updatedPlan);
+          saveCustomPlan(updatedPlan);
           setView('JOURNEY');
         }}
       />
     );
   }
 
-  if (view === 'ONBOARDING' && !preferences.hasOnboarded) {
-    return renderOnboarding();
-  }
-
-  // Allow re-entering onboarding to edit settings
   if (view === 'ONBOARDING') {
-      return renderOnboarding();
+    return renderOnboarding();
   }
 
   return (
@@ -483,6 +582,7 @@ const App: React.FC = () => {
              onStartRoutine={handleGenerate} 
              onEditPlan={() => setView('PLAN_EDITOR')}
              onUpdateDay={handleUpdateDay}
+             onMarkComplete={handleMarkDayComplete}
            />
         )}
       </main>

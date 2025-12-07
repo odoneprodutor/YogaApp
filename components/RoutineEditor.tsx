@@ -14,6 +14,8 @@ interface RoutineEditorProps {
 export const RoutineEditor: React.FC<RoutineEditorProps> = ({ routine, onSaveAndPlay, onCancel }) => {
   const [poses, setPoses] = useState<Pose[]>(routine.poses);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
+  const [selectedPoseIndex, setSelectedPoseIndex] = useState<number | null>(null);
 
   const totalDuration = poses.reduce((acc, curr) => acc + curr.durationDefault, 0);
 
@@ -25,10 +27,15 @@ export const RoutineEditor: React.FC<RoutineEditorProps> = ({ routine, onSaveAnd
       [newPoses[index], newPoses[index + 1]] = [newPoses[index + 1], newPoses[index]];
     }
     setPoses(newPoses);
+    // Maintain selection if moving the selected item
+    if (selectedPoseIndex === index) {
+        setSelectedPoseIndex(direction === 'up' ? index - 1 : index + 1);
+    }
   };
 
   const removePose = (index: number) => {
     setPoses(poses.filter((_, i) => i !== index));
+    if (selectedPoseIndex === index) setSelectedPoseIndex(null);
   };
 
   const addPose = (pose: Pose) => {
@@ -37,12 +44,47 @@ export const RoutineEditor: React.FC<RoutineEditorProps> = ({ routine, onSaveAnd
   };
 
   const updateDuration = (index: number, newDuration: number) => {
-    // Permitir ajustes de 15s até 300s (5 min), que é o tempo do Savasana
+    // Permitir ajustes de 15s até 300s (5 min)
     if (newDuration < 15 || newDuration > 300) return;
     const newPoses = [...poses];
-    // Create a shallow copy of the pose to avoid mutating the original reference
     newPoses[index] = { ...newPoses[index], durationDefault: newDuration };
     setPoses(newPoses);
+  };
+
+  const toggleSelection = (index: number) => {
+    if (selectedPoseIndex === index) {
+      setSelectedPoseIndex(null);
+    } else {
+      setSelectedPoseIndex(index);
+    }
+  };
+
+  // Drag and Drop Handlers
+  const handleDragStart = (index: number) => {
+    setDraggedItemIndex(index);
+    setSelectedPoseIndex(index); // Auto select on drag start
+  };
+
+  const handleDragEnter = (index: number) => {
+    if (draggedItemIndex === null || draggedItemIndex === index) return;
+
+    const newPoses = [...poses];
+    const draggedItem = newPoses[draggedItemIndex];
+    
+    // Remove from old position
+    newPoses.splice(draggedItemIndex, 1);
+    // Insert at new position
+    newPoses.splice(index, 0, draggedItem);
+
+    setPoses(newPoses);
+    setDraggedItemIndex(index);
+    setSelectedPoseIndex(index); // Keep selection following the drag
+  };
+
+  const handleDragEnd = () => {
+    setDraggedItemIndex(null);
+    // Note: We keep selectedPoseIndex active so the user sees where it landed,
+    // but they can click again to deselect.
   };
 
   return (
@@ -63,72 +105,96 @@ export const RoutineEditor: React.FC<RoutineEditorProps> = ({ routine, onSaveAnd
 
       {/* List */}
       <div className="space-y-3">
-        {poses.map((pose, index) => (
-          <div key={`${pose.id}-${index}`} className="bg-white p-3 rounded-xl border border-stone-200 shadow-sm flex items-center gap-4 group hover:border-sage-300 transition-colors">
-            <div className="text-stone-300 cursor-grab hidden sm:block">
-               <GripVertical size={20} />
-            </div>
-            <img src={pose.media.thumbnailUrl} alt={pose.portugueseName} className="w-16 h-16 rounded-lg object-cover bg-stone-100 hidden xs:block" />
-            
-            <div className="flex-1 min-w-0">
-              <h4 className="font-medium text-sage-900 truncate">{pose.portugueseName}</h4>
+        {poses.map((pose, index) => {
+          const isDragged = draggedItemIndex === index;
+          const isSelected = selectedPoseIndex === index;
+
+          return (
+            <div 
+              key={`${pose.id}-${index}`} 
+              draggable
+              onDragStart={() => handleDragStart(index)}
+              onDragEnter={() => handleDragEnter(index)}
+              onDragEnd={handleDragEnd}
+              onDragOver={(e) => e.preventDefault()}
+              onClick={() => toggleSelection(index)}
+              className={`
+                bg-white p-3 rounded-xl border shadow-sm flex items-center gap-4 group transition-all cursor-pointer
+                ${isDragged 
+                  ? 'border-dashed border-sage-500 opacity-50 bg-sage-50 scale-[1.02] shadow-lg z-10' 
+                  : isSelected 
+                    ? 'border-sage-500 bg-sage-50 shadow-md ring-1 ring-sage-500'
+                    : 'border-stone-200 hover:border-sage-300'
+                }
+              `}
+            >
+              {/* Drag Handle */}
+              <div className="text-stone-300 cursor-grab active:cursor-grabbing hidden sm:block p-2 -ml-2 hover:text-sage-600 transition-colors">
+                 <GripVertical size={20} />
+              </div>
               
-              {/* Duration Control */}
-              <div className="flex items-center gap-2 mt-1">
-                <button 
-                  onClick={() => updateDuration(index, pose.durationDefault - 15)}
-                  disabled={pose.durationDefault <= 15}
-                  className="w-6 h-6 flex items-center justify-center rounded-md bg-stone-100 text-stone-600 hover:bg-sage-100 disabled:opacity-30 disabled:hover:bg-stone-100 transition-colors"
-                  aria-label="Diminuir tempo"
-                >
-                  <Minus size={12} />
-                </button>
+              <img src={pose.media.thumbnailUrl} alt={pose.portugueseName} className="w-16 h-16 rounded-lg object-cover bg-stone-100 hidden xs:block pointer-events-none" />
+              
+              <div className="flex-1 min-w-0">
+                <h4 className="font-medium text-sage-900 truncate">{pose.portugueseName}</h4>
                 
-                <span className="text-xs font-bold text-sage-700 w-8 text-center tabular-nums">
-                  {pose.durationDefault}s
-                </span>
-                
-                <button 
-                  onClick={() => updateDuration(index, pose.durationDefault + 15)}
-                  disabled={pose.durationDefault >= 300}
-                  className="w-6 h-6 flex items-center justify-center rounded-md bg-stone-100 text-stone-600 hover:bg-sage-100 disabled:opacity-30 disabled:hover:bg-stone-100 transition-colors"
-                  aria-label="Aumentar tempo"
-                >
-                  <Plus size={12} />
-                </button>
+                {/* Duration Control */}
+                <div className="flex items-center gap-2 mt-1" onClick={(e) => e.stopPropagation()}>
+                  <button 
+                    onClick={() => updateDuration(index, pose.durationDefault - 15)}
+                    disabled={pose.durationDefault <= 15}
+                    className="w-6 h-6 flex items-center justify-center rounded-md bg-stone-100 text-stone-600 hover:bg-sage-100 disabled:opacity-30 disabled:hover:bg-stone-100 transition-colors"
+                    aria-label="Diminuir tempo"
+                  >
+                    <Minus size={12} />
+                  </button>
+                  
+                  <span className="text-xs font-bold text-sage-700 w-8 text-center tabular-nums">
+                    {pose.durationDefault}s
+                  </span>
+                  
+                  <button 
+                    onClick={() => updateDuration(index, pose.durationDefault + 15)}
+                    disabled={pose.durationDefault >= 300}
+                    className="w-6 h-6 flex items-center justify-center rounded-md bg-stone-100 text-stone-600 hover:bg-sage-100 disabled:opacity-30 disabled:hover:bg-stone-100 transition-colors"
+                    aria-label="Aumentar tempo"
+                  >
+                    <Plus size={12} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                 <div className="flex flex-col sm:flex-row gap-1">
+                   <button 
+                    onClick={() => movePose(index, 'up')}
+                    disabled={index === 0}
+                    className="p-2 text-stone-400 hover:text-sage-600 disabled:opacity-30 hover:bg-stone-50 rounded-full"
+                    title="Mover para cima"
+                   >
+                     <ArrowUp size={18} />
+                   </button>
+                   <button 
+                    onClick={() => movePose(index, 'down')}
+                    disabled={index === poses.length - 1}
+                    className="p-2 text-stone-400 hover:text-sage-600 disabled:opacity-30 hover:bg-stone-50 rounded-full"
+                    title="Mover para baixo"
+                   >
+                     <ArrowDown size={18} />
+                   </button>
+                 </div>
+                 <div className="w-px h-8 bg-stone-100 mx-1"></div>
+                 <button 
+                  onClick={() => removePose(index)}
+                  className="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-full"
+                  title="Remover postura"
+                 >
+                   <Trash2 size={18} />
+                 </button>
               </div>
             </div>
-
-            <div className="flex items-center gap-1">
-               <div className="flex flex-col sm:flex-row gap-1">
-                 <button 
-                  onClick={() => movePose(index, 'up')}
-                  disabled={index === 0}
-                  className="p-2 text-stone-400 hover:text-sage-600 disabled:opacity-30 hover:bg-stone-50 rounded-full"
-                  title="Mover para cima"
-                 >
-                   <ArrowUp size={18} />
-                 </button>
-                 <button 
-                  onClick={() => movePose(index, 'down')}
-                  disabled={index === poses.length - 1}
-                  className="p-2 text-stone-400 hover:text-sage-600 disabled:opacity-30 hover:bg-stone-50 rounded-full"
-                  title="Mover para baixo"
-                 >
-                   <ArrowDown size={18} />
-                 </button>
-               </div>
-               <div className="w-px h-8 bg-stone-100 mx-1"></div>
-               <button 
-                onClick={() => removePose(index)}
-                className="p-2 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-full"
-                title="Remover postura"
-               >
-                 <Trash2 size={18} />
-               </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
         
         {poses.length === 0 && (
            <div className="text-center py-12 border-2 border-dashed border-stone-200 rounded-xl text-stone-400">
