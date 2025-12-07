@@ -71,6 +71,16 @@ export interface PlanDay {
   weekLabel?: number; // Para identificar a semana visualmente
 }
 
+export interface PlanPathway {
+    id: string;
+    title: string;
+    description: string;
+    reason: string;
+    targetGoal: Goal;
+    targetLevel: Difficulty;
+    targetStage: number; // 1 to 5
+}
+
 export interface TrainingPlan {
   id: string;
   userId?: string; // Link plan to a user
@@ -81,11 +91,21 @@ export interface TrainingPlan {
   durationWeeks?: number;
   reasoning?: string[]; // Explicações do porquê este plano foi gerado
   
+  // Explicit Metadata for Logic Engine
+  metadata?: {
+      goal: Goal;
+      level: Difficulty;
+  };
+  
   // Evolution Fields
+  stage?: number; // 1 (I), 2 (II), 3 (III)...
   status?: 'active' | 'completed' | 'archived';
   progress?: number; // 0 to 100 percentage
   completedSessions?: number;
   totalPlannedSessions?: number;
+  
+  // Next Steps Options (Calculated when complete)
+  nextPaths?: PlanPathway[];
 }
 
 export interface Comment {
@@ -101,6 +121,7 @@ export interface Comment {
 
 export interface Article {
   id: string;
+  userId?: string; // Author ID (if user generated)
   title: string;
   excerpt: string;
   content: string[]; // Array of paragraphs

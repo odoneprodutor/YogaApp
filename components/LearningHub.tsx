@@ -1,9 +1,10 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { Article, Comment } from '../types';
 import { knowledgeBase } from '../services/knowledgeBase';
 import { Badge, Button, Card } from './ui';
-import { ArrowLeft, Clock, BookOpen, Share2, Sparkles, User, Tag, Settings, Plus, X, Image as ImageIcon, Heart, MessageCircle, Send, ThumbsUp, CornerDownRight, Users, Newspaper } from 'lucide-react';
+import { ArrowLeft, Clock, BookOpen, Share2, Sparkles, User, Tag, Settings, Plus, X, Image as ImageIcon, Heart, MessageCircle, Send, ThumbsUp, CornerDownRight, Users, Newspaper, Trash2 } from 'lucide-react';
 import { authService } from '../services/auth';
 
 export const LearningHub: React.FC = () => {
@@ -71,6 +72,7 @@ export const LearningHub: React.FC = () => {
 
       const articleToAdd: Article = {
           id: Date.now().toString(),
+          userId: currentUser?.id, // Store author ID
           title: newArticleData.title,
           excerpt: newArticleData.excerpt,
           imageUrl: newArticleData.imageUrl,
@@ -91,6 +93,17 @@ export const LearningHub: React.FC = () => {
       setViewMode('COMMUNITY');
       setNewArticleData({ category: 'Inspiração', readTime: '3 min', author: currentUser?.name || 'Comunidade', content: [] });
       setContentInput('');
+  };
+  
+  const handleDeleteArticle = (e: React.MouseEvent, articleId: string) => {
+      e.stopPropagation();
+      if (window.confirm("Tem certeza que deseja apagar esta publicação?")) {
+          knowledgeBase.deleteArticle(articleId);
+          refreshArticles();
+          if (selectedArticle?.id === articleId) {
+              setSelectedArticle(null);
+          }
+      }
   };
 
   const handleLikeArticle = (e?: React.MouseEvent) => {
@@ -465,48 +478,63 @@ export const LearningHub: React.FC = () => {
 
       {/* Article Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in">
-        {filteredArticles.map(article => (
-            <div 
-                key={article.id} 
-                onClick={() => setSelectedArticle(article)}
-                className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden cursor-pointer group hover:border-sage-300 transition-colors h-full flex flex-col relative"
-            >
-                <div className="h-48 overflow-hidden bg-stone-100 relative">
-                    <img 
-                        src={article.imageUrl} 
-                        alt="" 
-                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
-                        loading="lazy"
-                    />
-                    <div className="absolute top-2 right-2 flex gap-1">
-                        {article.isUserGenerated && (
-                            <div className="bg-purple-600/90 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-white uppercase tracking-wider shadow-sm">
-                                Comunidade
+        {filteredArticles.map(article => {
+            const isMyPost = currentUser && article.userId === currentUser.id;
+            
+            return (
+                <div 
+                    key={article.id} 
+                    onClick={() => setSelectedArticle(article)}
+                    className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden cursor-pointer group hover:border-sage-300 transition-colors h-full flex flex-col relative"
+                >
+                    <div className="h-48 overflow-hidden bg-stone-100 relative">
+                        <img 
+                            src={article.imageUrl} 
+                            alt="" 
+                            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+                            loading="lazy"
+                        />
+                        <div className="absolute top-2 right-2 flex gap-1">
+                            {article.isUserGenerated && (
+                                <div className="bg-purple-600/90 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-white uppercase tracking-wider shadow-sm">
+                                    Comunidade
+                                </div>
+                            )}
+                            <div className="bg-white/90 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-stone-600 uppercase tracking-wider shadow-sm">
+                                {article.category}
                             </div>
+                        </div>
+                        
+                        {/* Delete Button for Owner */}
+                        {isMyPost && (
+                            <button
+                                onClick={(e) => handleDeleteArticle(e, article.id)}
+                                className="absolute top-2 left-2 bg-red-500/90 hover:bg-red-600 text-white p-2 rounded-full shadow-sm backdrop-blur transition-all"
+                                title="Excluir Publicação"
+                            >
+                                <Trash2 size={14} />
+                            </button>
                         )}
-                        <div className="bg-white/90 backdrop-blur px-2 py-1 rounded text-[10px] font-bold text-stone-600 uppercase tracking-wider shadow-sm">
-                            {article.category}
+                    </div>
+                    <div className="p-5 flex-1 flex flex-col">
+                        <h3 className="text-lg font-medium text-sage-900 mb-2 leading-snug group-hover:text-sage-700 transition-colors">
+                            {article.title}
+                        </h3>
+                        <p className="text-sm text-stone-500 line-clamp-2 mb-4 flex-1">
+                            {article.excerpt}
+                        </p>
+                        
+                        <div className="flex items-center justify-between text-xs text-stone-400 mt-auto pt-4 border-t border-stone-50">
+                            <div className="flex items-center gap-3">
+                                <span className="flex items-center gap-1"><Heart size={12}/> {article.likes}</span>
+                                <span className="flex items-center gap-1"><MessageCircle size={12}/> {article.comments?.length || 0}</span>
+                            </div>
+                            <span className="flex items-center gap-1"><User size={12}/> {article.author.split(' ')[0]}</span>
                         </div>
                     </div>
                 </div>
-                <div className="p-5 flex-1 flex flex-col">
-                    <h3 className="text-lg font-medium text-sage-900 mb-2 leading-snug group-hover:text-sage-700 transition-colors">
-                        {article.title}
-                    </h3>
-                    <p className="text-sm text-stone-500 line-clamp-2 mb-4 flex-1">
-                        {article.excerpt}
-                    </p>
-                    
-                    <div className="flex items-center justify-between text-xs text-stone-400 mt-auto pt-4 border-t border-stone-50">
-                        <div className="flex items-center gap-3">
-                            <span className="flex items-center gap-1"><Heart size={12}/> {article.likes}</span>
-                            <span className="flex items-center gap-1"><MessageCircle size={12}/> {article.comments?.length || 0}</span>
-                        </div>
-                        <span className="flex items-center gap-1"><User size={12}/> {article.author.split(' ')[0]}</span>
-                    </div>
-                </div>
-            </div>
-        ))}
+            );
+        })}
       </div>
       
       {filteredArticles.length === 0 && (

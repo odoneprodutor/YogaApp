@@ -1,11 +1,10 @@
 
-
 import React, { useState, useMemo, useEffect } from 'react';
-import { UserPreferences, SessionRecord, TrainingPlan, PlanDay, Memory } from '../types';
+import { UserPreferences, SessionRecord, TrainingPlan, PlanDay, Memory, Goal, Difficulty, Duration } from '../types';
 import { createPersonalizedPlan } from '../services/planEngine';
 import { Calendar } from './Calendar';
 import { Card, Badge, Button } from './ui';
-import { Calendar as CalendarIcon, Target, Trophy, Clock, Check, Edit3, Repeat, Coffee, Zap, X, Activity, Play, CheckCircle, Lightbulb, Info, Trash2, CalendarRange, List, Plus, Flame, Heart, Droplets, Wind, Mountain, Award } from 'lucide-react';
+import { Calendar as CalendarIcon, Target, Trophy, Clock, Check, Edit3, Repeat, Coffee, Zap, X, Activity, Play, CheckCircle, Lightbulb, Info, Trash2, CalendarRange, List, Plus, Flame, Heart, Droplets, Wind, Mountain, Award, ChevronRight } from 'lucide-react';
 
 interface JourneyProps {
   preferences: UserPreferences;
@@ -14,7 +13,7 @@ interface JourneyProps {
   plans?: TrainingPlan[]; // All available plans (optional for backward compatibility)
   activePlanId?: string | null;
   onSwitchPlan?: (planId: string) => void;
-  onCreateNewPlan?: () => void;
+  onCreateNewPlan?: (prefs?: UserPreferences) => void;
   onDeletePlan?: (planId: string) => void;
   onStartRoutine: () => void;
   onEditPlan: () => void; // Trigger for editing whole plan
@@ -44,6 +43,12 @@ export const Journey: React.FC<JourneyProps> = ({
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(new Date().toISOString().split('T')[0]);
   const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
   const [isManagePlansModalOpen, setIsManagePlansModalOpen] = useState(false);
+  
+  // New Plan Wizard State
+  const [isCreatorOpen, setIsCreatorOpen] = useState(false);
+  const [creatorStep, setCreatorStep] = useState(0);
+  const [creatorPrefs, setCreatorPrefs] = useState<UserPreferences>(preferences);
+
   const [showInsights, setShowInsights] = useState(true);
 
   // Week Selector State
@@ -135,10 +140,17 @@ export const Journey: React.FC<JourneyProps> = ({
      setIsSwapModalOpen(false);
   };
   
-  const handleCreateNew = () => {
+  const handleOpenCreator = () => {
+      setCreatorPrefs(preferences); // Reset to current defaults but user can change
+      setCreatorStep(0);
+      setIsManagePlansModalOpen(false);
+      setIsCreatorOpen(true);
+  };
+
+  const handleFinishCreator = () => {
       if (onCreateNewPlan) {
-          onCreateNewPlan();
-          setIsManagePlansModalOpen(false);
+          onCreateNewPlan(creatorPrefs);
+          setIsCreatorOpen(false);
       }
   };
 
@@ -559,14 +571,144 @@ export const Journey: React.FC<JourneyProps> = ({
                 </div>
 
                 <div className="p-4 border-t border-stone-100 bg-stone-50 rounded-b-2xl">
-                    <Button onClick={handleCreateNew} className="w-full justify-center">
+                    <Button onClick={handleOpenCreator} className="w-full justify-center">
                         <Plus size={18} /> Criar Nova Jornada
                     </Button>
                     <p className="text-[10px] text-stone-400 text-center mt-2">
-                        Será criada com base nas suas preferências atuais do Dashboard.
+                        Defina um novo foco para sua próxima aventura.
                     </p>
                 </div>
             </div>
+          </div>
+      )}
+
+      {/* NEW PLAN CREATOR WIZARD */}
+      {isCreatorOpen && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl animate-fade-in flex flex-col max-h-[90vh]">
+                  <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50 rounded-t-3xl">
+                      <h3 className="text-xl font-light text-sage-900">Nova Jornada Personalizada</h3>
+                      <button onClick={() => setIsCreatorOpen(false)} className="text-stone-400 hover:text-stone-600">
+                          <X size={24} />
+                      </button>
+                  </div>
+
+                  <div className="p-6 flex-1 overflow-y-auto">
+                      {creatorStep === 0 && (
+                          <div className="space-y-4 animate-fade-in">
+                              <h4 className="text-lg font-medium text-center mb-6">Qual será o foco principal?</h4>
+                              <div className="grid grid-cols-2 gap-4">
+                                  {(['Flexibilidade', 'Força', 'Relaxamento', 'Alívio de Dor'] as Goal[]).map((g) => (
+                                      <button
+                                          key={g}
+                                          onClick={() => setCreatorPrefs({...creatorPrefs, goal: g})}
+                                          className={`p-4 rounded-2xl border-2 transition-all text-left group
+                                              ${creatorPrefs.goal === g 
+                                                  ? 'border-sage-500 bg-sage-50 shadow-sm' 
+                                                  : 'border-stone-100 hover:border-sage-200'
+                                              }
+                                          `}
+                                      >
+                                          <span className={`block font-bold text-lg mb-1 ${creatorPrefs.goal === g ? 'text-sage-900' : 'text-stone-700'}`}>{g}</span>
+                                          <span className="text-xs text-stone-400">
+                                              {g === 'Flexibilidade' && 'Alongar e soltar.'}
+                                              {g === 'Força' && 'Tonificar e firmar.'}
+                                              {g === 'Relaxamento' && 'Desestressar a mente.'}
+                                              {g === 'Alívio de Dor' && 'Cuidar e restaurar.'}
+                                          </span>
+                                      </button>
+                                  ))}
+                              </div>
+                          </div>
+                      )}
+
+                      {creatorStep === 1 && (
+                          <div className="space-y-6 animate-fade-in">
+                              <div>
+                                  <h4 className="text-sm font-bold text-stone-400 uppercase mb-3">Nível de Experiência</h4>
+                                  <div className="grid grid-cols-3 gap-3">
+                                      {(['Iniciante', 'Intermediário', 'Avançado'] as Difficulty[]).map((l) => (
+                                          <button
+                                              key={l}
+                                              onClick={() => setCreatorPrefs({...creatorPrefs, level: l})}
+                                              className={`p-3 rounded-xl border-2 transition-all text-sm font-medium
+                                                  ${creatorPrefs.level === l 
+                                                      ? 'border-sage-500 bg-sage-50 text-sage-800' 
+                                                      : 'border-stone-100 hover:border-sage-200'
+                                                  }
+                                              `}
+                                          >
+                                              {l}
+                                          </button>
+                                      ))}
+                                  </div>
+                              </div>
+                              <div>
+                                  <h4 className="text-sm font-bold text-stone-400 uppercase mb-3">Duração por Sessão</h4>
+                                  <div className="grid grid-cols-3 gap-3">
+                                      {([15, 30, 45] as Duration[]).map((d) => (
+                                          <button
+                                              key={d}
+                                              onClick={() => setCreatorPrefs({...creatorPrefs, duration: d})}
+                                              className={`p-3 rounded-xl border-2 transition-all text-sm font-medium
+                                                  ${creatorPrefs.duration === d 
+                                                      ? 'border-sage-500 bg-sage-50 text-sage-800' 
+                                                      : 'border-stone-100 hover:border-sage-200'
+                                                  }
+                                              `}
+                                          >
+                                              {d} min
+                                          </button>
+                                      ))}
+                                  </div>
+                              </div>
+                          </div>
+                      )}
+
+                      {creatorStep === 2 && (
+                          <div className="space-y-6 animate-fade-in">
+                              <h4 className="text-lg font-medium text-center mb-2">Quantos dias por semana?</h4>
+                              <p className="text-center text-stone-400 text-sm mb-6">A consistência é mais importante que a intensidade.</p>
+                              
+                              <div className="grid grid-cols-3 gap-3">
+                                  {[2, 3, 4, 5, 6, 7].map((d) => (
+                                      <button
+                                          key={d}
+                                          onClick={() => setCreatorPrefs({...creatorPrefs, frequency: d})}
+                                          className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1
+                                              ${creatorPrefs.frequency === d
+                                                  ? 'border-sage-500 bg-sage-50 text-sage-800' 
+                                                  : 'border-stone-100 bg-white text-stone-600 hover:border-sage-200'
+                                              }
+                                          `}
+                                      >
+                                          <span className="text-2xl font-bold">{d}</span>
+                                          <span className="text-xs font-medium">Dias</span>
+                                      </button>
+                                  ))}
+                              </div>
+                          </div>
+                      )}
+                  </div>
+
+                  <div className="p-6 border-t border-stone-100 flex justify-between gap-3 rounded-b-3xl bg-white">
+                      {creatorStep > 0 ? (
+                          <Button variant="ghost" onClick={() => setCreatorStep(prev => prev - 1)}>Voltar</Button>
+                      ) : (
+                          <Button variant="ghost" onClick={() => setIsCreatorOpen(false)}>Cancelar</Button>
+                      )}
+                      
+                      {creatorStep < 2 ? (
+                          <Button onClick={() => setCreatorStep(prev => prev + 1)}>
+                              Próximo <ChevronRight size={18} />
+                          </Button>
+                      ) : (
+                          <Button onClick={handleFinishCreator} className="flex-1 justify-center">
+                              <Play size={18} fill="currentColor" /> Gerar Jornada
+                          </Button>
+                      )}
+                  </div>
+              </div>
           </div>
       )}
     </div>

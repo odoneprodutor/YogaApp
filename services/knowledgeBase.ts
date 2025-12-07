@@ -153,6 +153,16 @@ export const knowledgeBase = {
       }
   },
 
+  deleteArticle: (articleId: string) => {
+      try {
+          const articles = knowledgeBase.getAllArticles();
+          const filtered = articles.filter(a => a.id !== articleId);
+          localStorage.setItem(STORAGE_KEY_ARTICLES, JSON.stringify(filtered));
+      } catch (e) {
+          console.error("Error deleting article", e);
+      }
+  },
+
   toggleLike: (articleId: string, userId: string) => {
       const articles = knowledgeBase.getAllArticles();
       const articleIndex = articles.findIndex(a => a.id === articleId);

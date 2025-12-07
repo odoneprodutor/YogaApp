@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserPreferences, Routine, ViewState, Difficulty, Goal, Duration, SessionRecord, TrainingPlan, Discomfort, PlanDay, User, FeedbackRecord, StoryType } from './types';
+import { UserPreferences, Routine, ViewState, Difficulty, Goal, Duration, SessionRecord, TrainingPlan, Discomfort, PlanDay, User, FeedbackRecord, StoryType, PlanPathway } from './types';
 import { generateRoutine } from './services/routineEngine';
-import { createPersonalizedPlan, calculatePlanProgress, createEvolutionPlan } from './services/planEngine';
+import { createPersonalizedPlan, calculatePlanProgress } from './services/planEngine';
 import { authService } from './services/auth';
 import { PoseLibrary } from './components/PoseLibrary';
 import { RoutinePlayer } from './components/RoutinePlayer';
@@ -41,12 +41,13 @@ import {
   Mountain,
   CalendarDays,
   Trophy,
-  ArrowUpCircle
+  ArrowUpCircle,
+  GitBranch
 } from 'lucide-react';
 
 // Storage keys helper
 const getPrefsKey = (userId: string) => `yogaflow_prefs_${userId}`;
-const getPlansKey = (userId: string) => `yogaflow_plans_v2_${userId}`; // Changed key for array support
+const getPlansKey = (userId: string) => `yogaflow_plans_v2_${userId}`;
 const getActivePlanIdKey = (userId: string) => `yogaflow_active_plan_id_${userId}`;
 const getHistoryKey = (userId: string) => `yogaflow_history_${userId}`;
 const getWeeklyContextKey = (userId: string) => `yogaflow_weekly_ctx_${userId}`;
@@ -57,19 +58,18 @@ const App: React.FC = () => {
   const [isAuthChecking, setIsAuthChecking] = useState(true);
 
   // App State
-  const [view, setView] = useState<ViewState>('AUTH'); // Start at Auth check
+  const [view, setView] = useState<ViewState>('AUTH');
   const [preferences, setPreferences] = useState<UserPreferences>({
     level: 'Iniciante',
     goal: 'Relaxamento',
     duration: 15,
-    frequency: 3, // Default value
+    frequency: 3,
     age: 30,
     weight: undefined,
     discomforts: [],
     hasOnboarded: false
   });
   
-  // Plans State (Multi-plan support)
   const [plans, setPlans] = useState<TrainingPlan[]>([]);
   const [activePlanId, setActivePlanId] = useState<string | null>(null);
 
@@ -77,22 +77,18 @@ const App: React.FC = () => {
   const [currentRoutine, setCurrentRoutine] = useState<Routine | null>(null);
   const [onboardingStep, setOnboardingStep] = useState(0);
   
-  // Dashboard Prefs Editor State
   const [editingPrefs, setEditingPrefs] = useState<UserPreferences | null>(null);
   const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
 
-  // Stories State
   const [storyType, setStoryType] = useState<StoryType>('POST_PRACTICE');
   const [weeklyContext, setWeeklyContext] = useState<FeedbackRecord | null>(null);
   const [weeklyReport, setWeeklyReport] = useState<{intention: string, result: string, insight: string} | null>(null);
   
-  // Graduation State
   const [showGraduation, setShowGraduation] = useState(false);
 
   // Derived Active Plan
   const activePlan = plans.find(p => p.id === activePlanId) || plans[0] || null;
 
-  // Swap Options (Same as Journey)
   const swapOptions = [
     { label: 'Flexibilidade', icon: <Activity size={18}/>, desc: 'Focar em alongamento' },
     { label: 'Força', icon: <Zap size={18}/>, desc: 'Focar em tonificação' },
@@ -107,7 +103,6 @@ const App: React.FC = () => {
 
   // --- Auth & Data Loading Effects ---
 
-  // 1. Check Session on Mount
   useEffect(() => {
     const checkAuth = async () => {
       const savedUser = authService.getCurrentUser();
@@ -121,11 +116,9 @@ const App: React.FC = () => {
     checkAuth();
   }, []);
 
-  // 2. Load Data when User Changes
   const handleUserAuthenticated = (authenticatedUser: User) => {
     setUser(authenticatedUser);
     
-    // Load User Data from LocalStorage
     const prefsStr = localStorage.getItem(getPrefsKey(authenticatedUser.id));
     const plansStr = localStorage.getItem(getPlansKey(authenticatedUser.id));
     const activePlanIdStr = localStorage.getItem(getActivePlanIdKey(authenticatedUser.id));
@@ -134,7 +127,6 @@ const App: React.FC = () => {
 
     if (prefsStr) {
       const loadedPrefs = JSON.parse(prefsStr);
-      // Ensure frequency exists for old users
       if (!loadedPrefs.frequency) loadedPrefs.frequency = 3;
       setPreferences(loadedPrefs);
       
@@ -144,28 +136,23 @@ const App: React.FC = () => {
         setView('ONBOARDING');
       }
     } else {
-      // New user data
       setPreferences({ ...preferences, userId: authenticatedUser.id, hasOnboarded: false });
       setView('ONBOARDING');
     }
 
-    // Load Plans (Migration Logic for old single plan)
     if (plansStr) {
       let loadedPlans: TrainingPlan[] = JSON.parse(plansStr);
-      // Recalculate progress for all plans on load
       const loadedHistory = historyStr ? JSON.parse(historyStr) : [];
       loadedPlans = loadedPlans.map(p => calculatePlanProgress(p, loadedHistory));
       setPlans(loadedPlans);
 
       if (activePlanIdStr) setActivePlanId(activePlanIdStr);
     } else {
-      // Check for legacy single plan
       const legacyPlanStr = localStorage.getItem(`yogaflow_plan_${authenticatedUser.id}`);
       if (legacyPlanStr) {
         const legacyPlan = JSON.parse(legacyPlanStr);
         setPlans([legacyPlan]);
         setActivePlanId(legacyPlan.id);
-        // Save to new format immediately
         localStorage.setItem(getPlansKey(authenticatedUser.id), JSON.stringify([legacyPlan]));
         localStorage.setItem(getActivePlanIdKey(authenticatedUser.id), legacyPlan.id);
       }
@@ -223,7 +210,6 @@ const App: React.FC = () => {
   const saveHistory = (newHistory: SessionRecord[]) => {
     setHistory(newHistory);
     
-    // Always recalculate progress when history changes
     const updatedPlans = plans.map(p => calculatePlanProgress(p, newHistory));
     savePlans(updatedPlans);
 
@@ -243,7 +229,7 @@ const App: React.FC = () => {
   // --- Handlers ---
 
   const handleOnboardingComplete = () => {
-    const generatedPlan = createPersonalizedPlan(preferences);
+    const generatedPlan = createPersonalizedPlan(preferences, 1);
     savePlans([generatedPlan], generatedPlan.id);
     
     const finalPrefs = { 
@@ -255,7 +241,6 @@ const App: React.FC = () => {
     setView('DASHBOARD');
   };
   
-  // Handler for Quick Edit Modal on Dashboard
   const handleOpenPrefsEditor = () => {
       setEditingPrefs({ ...preferences });
   };
@@ -265,10 +250,8 @@ const App: React.FC = () => {
       
       savePreferences(editingPrefs);
       
-      // Update active plan to reflect new preferences if it exists
       if (activePlan) {
-        const newPlan = createPersonalizedPlan(editingPrefs);
-        // Keep ID and Name consistent if updating existing logic, or just replace content
+        const newPlan = createPersonalizedPlan(editingPrefs, activePlan.stage || 1);
         const updatedPlan = { 
             ...newPlan, 
             id: activePlan.id, 
@@ -283,42 +266,50 @@ const App: React.FC = () => {
       setEditingPrefs(null);
   };
 
-  // Create a brand new plan (Multi-plan support)
-  const handleCreateNewPlan = () => {
-    const newPlan = createPersonalizedPlan(preferences);
-    // Ensure unique name or ID
-    newPlan.name = `${newPlan.name} (Nova)`;
+  // Updated to accept custom preferences
+  const handleCreateNewPlan = (customPrefs?: UserPreferences) => {
+    const prefsToUse = customPrefs || preferences;
+    const newPlan = createPersonalizedPlan(prefsToUse, 1);
+    
+    // Check if duplicate name exists, append suffix
+    const existingCount = plans.filter(p => p.name.startsWith(newPlan.name)).length;
+    if (existingCount > 0) {
+        newPlan.name = `${newPlan.name} (${existingCount + 1})`;
+    }
+    
+    // Ensure unique ID
     newPlan.id = `plan-${Date.now()}`;
     
     const updatedPlans = [...plans, newPlan];
     savePlans(updatedPlans, newPlan.id);
   };
 
-  // --- EVOLUTION HANDLER ---
-  const handleEvolvePlan = () => {
+  // --- PATHWAY SELECTION HANDLER ---
+  const handleSelectPathway = (path: PlanPathway) => {
       if (!activePlan) return;
       
-      // 1. Mark current as completed/archived
+      // 1. Mark current as completed
       const archivedPlan = { ...activePlan, status: 'completed' as const };
       
-      // 2. Create Next Level Plan
-      const nextPlan = createEvolutionPlan(archivedPlan, preferences);
+      // 2. Create Next Level Plan based on Selection
+      const newPrefs = { 
+          ...preferences, 
+          level: path.targetLevel, 
+          goal: path.targetGoal 
+      };
       
+      const nextPlan = createPersonalizedPlan(newPrefs, path.targetStage);
+      
+      // Update Name/Reason based on path
+      nextPlan.name = path.title; // e.g. "Continuar Flexibilidade II"
+      nextPlan.reasoning = [path.reason, ...nextPlan.reasoning!];
+
       // 3. Update State
       const updatedPlans = plans.map(p => p.id === activePlan.id ? archivedPlan : p);
       updatedPlans.push(nextPlan);
       
       savePlans(updatedPlans, nextPlan.id);
-      
-      // Update User Level in Prefs if changed
-      if (preferences.level !== 'Avançado' && nextPlan.name.includes('Intermediário')) {
-          savePreferences({ ...preferences, level: 'Intermediário', startDate: new Date().toISOString() });
-      } else if (preferences.level !== 'Avançado' && nextPlan.name.includes('Avançado')) {
-          savePreferences({ ...preferences, level: 'Avançado', startDate: new Date().toISOString() });
-      } else {
-          // Reset start date for the new cycle
-           savePreferences({ ...preferences, startDate: new Date().toISOString() });
-      }
+      savePreferences({ ...newPrefs, startDate: new Date().toISOString() });
       
       setShowGraduation(false);
       setWeeklyReport(null);
@@ -333,7 +324,6 @@ const App: React.FC = () => {
        newActiveId = updatedPlans.length > 0 ? updatedPlans[0].id : undefined;
     }
     
-    // If we deleted the active plan id, we must pass the new one, else maintain current
     if (activePlanId === planId && newActiveId) {
         savePlans(updatedPlans, newActiveId);
     } else if (updatedPlans.length === 0) {
@@ -344,7 +334,6 @@ const App: React.FC = () => {
             localStorage.removeItem(getActivePlanIdKey(user.id));
         }
     } else {
-        // Just removed a non-active plan
         savePlans(updatedPlans); 
     }
   };
@@ -356,7 +345,6 @@ const App: React.FC = () => {
   };
 
   const handleRoutineComplete = () => {
-    // Instead of finishing immediately, we trigger the Post Practice Story
     setStoryType('POST_PRACTICE');
     setView('STORIES');
   };
@@ -365,27 +353,23 @@ const App: React.FC = () => {
     const newRecord: SessionRecord = {
       id: Date.now().toString(),
       userId: user?.id,
-      planId: activePlan?.id, // Link to current plan
+      planId: activePlan?.id,
       date: dateStr,
       routineName: planDay.practiceName || planDay.focus || `Prática de ${preferences.goal}`,
-      duration: preferences.duration // Assume user did the standard duration
+      duration: preferences.duration
     };
     saveHistory([newRecord, ...history]);
   };
 
-  // Updated to handle specific week index
   const handleUpdateDay = (weekIndex: number, dayIndex: number, newDayData: PlanDay) => {
     if (!activePlan) return;
 
-    // Clone the plan's weeks structure
     let newWeeks = activePlan.weeks ? [...activePlan.weeks] : [];
     
-    // If weeks doesn't exist or is empty (legacy), create it from schedule
     if (newWeeks.length === 0) {
         newWeeks = [activePlan.schedule, activePlan.schedule, activePlan.schedule, activePlan.schedule];
     }
 
-    // Deep clone the specific week
     const targetWeek = [...newWeeks[weekIndex]];
     targetWeek[dayIndex] = newDayData;
     newWeeks[weekIndex] = targetWeek;
@@ -393,7 +377,6 @@ const App: React.FC = () => {
     const updatedPlan = { 
         ...activePlan, 
         weeks: newWeeks,
-        // Also update legacy schedule if we modified the first week
         schedule: weekIndex === 0 ? targetWeek : activePlan.schedule 
     };
 
@@ -432,7 +415,6 @@ const App: React.FC = () => {
   };
 
   const handleStoriesComplete = (feedback: FeedbackRecord) => {
-    // 1. Post Practice Logic
     if (feedback.type === 'POST_PRACTICE' && currentRoutine) {
         const newRecord: SessionRecord = {
             id: Date.now().toString(),
@@ -445,33 +427,25 @@ const App: React.FC = () => {
         };
         saveHistory([newRecord, ...history]);
         
-        // --- ADAPTATION LOGIC ---
-        // Check difficulty feedback
         const difficultyResponse = feedback.responses.find(r => r.question.includes("intensidade"));
         if (difficultyResponse && difficultyResponse.score !== undefined) {
              if (difficultyResponse.score === -1) {
-                 // Too Hard -> Decrease level if possible
                  if (preferences.level === 'Avançado') savePreferences({...preferences, level: 'Intermediário'});
                  else if (preferences.level === 'Intermediário') savePreferences({...preferences, level: 'Iniciante'});
              } else if (difficultyResponse.score === 1) {
-                 // Too Easy -> Increase level if possible
                  if (preferences.level === 'Iniciante') savePreferences({...preferences, level: 'Intermediário'});
                  else if (preferences.level === 'Intermediário') savePreferences({...preferences, level: 'Avançado'});
              }
         }
     } 
-    // 2. Weekly Checkin (Start of Week)
     else if (feedback.type === 'WEEKLY_CHECKIN') {
         saveWeeklyContext(feedback);
-        console.log("Weekly Intention Set:", feedback);
     }
-    // 3. Weekly Review (End of Week) -> GENERATE RESULT
     else if (feedback.type === 'WEEKLY_REVIEW') {
         const intention = weeklyContext?.responses.find(r => r.question.includes('intenção'))?.answer || "Não definida";
-        const reality = feedback.responses.find(r => r.question.includes('intenção'))?.answer || "Não informado"; // Did you meet it?
+        const reality = feedback.responses.find(r => r.question.includes('intenção'))?.answer || "Não informado";
         const feeling = feedback.responses.find(r => r.question.includes('sentimento'))?.answer || "Neutro";
 
-        // Generate Insight
         let insight = "";
         if (reality.includes("Sim")) {
             insight = "Sua dedicação foi recompensada! Você conseguiu alinhar sua mente com suas ações. Mantenha esse foco para a próxima semana.";
@@ -487,17 +461,14 @@ const App: React.FC = () => {
             insight
         });
         
-        // Check if this was the FINAL week (Week 4 Review)
         const ctx = getTodayContext();
         if (ctx && ctx.weekIndex >= 3) {
             setShowGraduation(true);
         }
         
-        // Reset context for next week
         saveWeeklyContext(null);
     }
 
-    // Return to Journey
     setView('JOURNEY');
   };
 
@@ -506,7 +477,6 @@ const App: React.FC = () => {
       setView('STORIES');
   };
 
-  // Helper to calculate Today's specific plan details
   const getTodayContext = () => {
     if (!activePlan) return null;
     const today = new Date();
@@ -530,17 +500,12 @@ const App: React.FC = () => {
     return { weekIndex, dayIndex: dayOfWeek, dayPlan };
   };
 
-  // --- Views ---
-
   const renderOnboarding = () => {
-    // Steps: 0: Intro/Bio, 1: Discomforts, 2: Experience Level, 3: Frequency, 4: Goal, 5: Duration
-    // Total steps = 6
     const totalSteps = 6;
     const nextStep = () => setOnboardingStep(prev => prev + 1);
     const prevStep = () => setOnboardingStep(prev => Math.max(0, prev - 1));
     const progress = ((onboardingStep + 1) / totalSteps) * 100;
 
-    // Helper wrapper to update state and auto save to LS for draft resilience
     const updatePrefs = (updates: Partial<UserPreferences>) => {
       setPreferences(prev => ({...prev, ...updates}));
     };
@@ -548,13 +513,11 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen bg-sage-50 flex items-center justify-center p-6">
         <div className="max-w-lg w-full bg-white rounded-3xl shadow-xl p-8 animate-fade-in relative overflow-hidden">
-          {/* Progress Bar */}
           <div className="absolute top-0 left-0 right-0 h-2 bg-sage-100">
             <div className="h-full bg-sage-600 transition-all duration-500" style={{ width: `${progress}%` }} />
           </div>
 
           <div className="mt-4">
-            {/* Step 0: Bio Data */}
             {onboardingStep === 0 && (
               <div className="animate-fade-in">
                 <div className="flex justify-center mb-6">
@@ -598,7 +561,6 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* Step 1: Discomforts */}
             {onboardingStep === 1 && (
               <div className="animate-fade-in">
                 <div className="flex justify-center mb-6">
@@ -651,7 +613,6 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* Step 2: Level */}
             {onboardingStep === 2 && (
               <div className="animate-fade-in">
                 <div className="flex justify-center mb-6">
@@ -683,7 +644,6 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* Step 3: Frequency (NEW) */}
             {onboardingStep === 3 && (
               <div className="animate-fade-in">
                 <div className="flex justify-center mb-6">
@@ -720,7 +680,6 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* Step 4: Goal */}
             {onboardingStep === 4 && (
               <div className="animate-fade-in">
                 <div className="flex justify-center mb-6">
@@ -752,7 +711,6 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* Step 5: Duration */}
             {onboardingStep === 5 && (
               <div className="animate-fade-in">
                 <div className="flex justify-center mb-6">
@@ -768,11 +726,8 @@ const App: React.FC = () => {
                     <button
                       key={opt}
                       onClick={() => {
-                        // Immediately update and finish
                         const newPrefs = { ...preferences, duration: opt };
-                        // We need to call the final saver manually here because of state batching issues if we just relied on updatePrefs
                         setPreferences(newPrefs);
-                        // Trigger completion flow next tick
                         setTimeout(() => handleOnboardingComplete(), 50);
                       }}
                       className={`w-full p-4 bg-white rounded-xl shadow-sm border transition-all text-left flex justify-between items-center group
@@ -801,9 +756,7 @@ const App: React.FC = () => {
 
   const renderDashboard = () => {
     const todayCtx = getTodayContext();
-    // Logic to handle Rest Days gracefully in Dashboard Title
     const isRestDay = todayCtx?.dayPlan?.activityType === 'Rest';
-    // Use practiceName if available, else fallback to focus, else generic
     const todayPracticeName = todayCtx?.dayPlan?.practiceName || todayCtx?.dayPlan?.focus || `Fluxo de ${preferences.goal}`;
     const todayFocus = isRestDay ? "Recuperação" : (todayCtx?.dayPlan?.focus || preferences.goal);
     
@@ -827,10 +780,8 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Hero Card: Routine of the Day */}
         <section className="mb-10">
           <div className={`rounded-3xl p-8 text-white shadow-xl relative overflow-hidden ${isRestDay ? 'bg-gradient-to-br from-stone-500 to-stone-700' : 'bg-gradient-to-br from-sage-600 to-sage-800'}`}>
-            {/* Abstract blobs */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/4 blur-3xl" />
             <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full translate-y-1/2 -translate-x-1/4 blur-2xl" />
             
@@ -840,7 +791,6 @@ const App: React.FC = () => {
                  <span className="text-sm font-medium tracking-wide uppercase">{isRestDay ? "Dia de Descanso" : "Prática de Hoje"}</span>
               </div>
               
-              {/* Dynamic Title based on Plan Day */}
               <h2 className="text-3xl font-semibold mb-2">{todayPracticeName}</h2>
               <div className="mb-6 flex items-center gap-2">
                  <Badge color={isRestDay ? "green" : "blue"}>{todayFocus}</Badge>
@@ -861,7 +811,6 @@ const App: React.FC = () => {
                         <Check size={20} /> Recuperação Ativa
                     </Button>
                 )}
-                {/* Edit Button Opens Swap Modal for TODAY */}
                 <Button variant="outline" onClick={() => setIsSwapModalOpen(true)} className="border-white/30 text-white hover:bg-white/10" title="Trocar Prática de Hoje">
                   <Edit2 size={20} />
                 </Button>
@@ -870,7 +819,6 @@ const App: React.FC = () => {
           </div>
         </section>
 
-        {/* Quick Settings */}
         <section className="mb-8">
            <h3 className="text-lg font-medium text-stone-700 mb-4">Ajustar Preferências</h3>
            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -898,7 +846,6 @@ const App: React.FC = () => {
            </div>
         </section>
 
-        {/* PREFERENCES EDITOR MODAL */}
         {editingPrefs && (
            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl animate-fade-in flex flex-col max-h-[90vh]">
@@ -912,8 +859,6 @@ const App: React.FC = () => {
                  </div>
                  
                  <div className="overflow-y-auto p-6 flex-1 space-y-8">
-                    
-                    {/* Goal Section */}
                     <div className="space-y-3">
                        <h4 className="text-sm font-bold text-stone-500 uppercase">Objetivo Principal</h4>
                        <div className="grid grid-cols-2 gap-3">
@@ -934,7 +879,6 @@ const App: React.FC = () => {
                        </div>
                     </div>
 
-                    {/* Level Section */}
                     <div className="space-y-3">
                        <h4 className="text-sm font-bold text-stone-500 uppercase">Nível de Experiência</h4>
                        <div className="grid grid-cols-3 gap-3">
@@ -955,7 +899,6 @@ const App: React.FC = () => {
                        </div>
                     </div>
 
-                    {/* Frequency Section */}
                     <div className="space-y-3">
                        <h4 className="text-sm font-bold text-stone-500 uppercase">Frequência Semanal</h4>
                        <div className="flex gap-2 overflow-x-auto pb-2">
@@ -976,7 +919,6 @@ const App: React.FC = () => {
                        </div>
                     </div>
 
-                    {/* Duration Section */}
                     <div className="space-y-3">
                        <h4 className="text-sm font-bold text-stone-500 uppercase">Duração (Minutos)</h4>
                        <div className="grid grid-cols-3 gap-3">
@@ -997,7 +939,6 @@ const App: React.FC = () => {
                        </div>
                     </div>
 
-                    {/* Discomforts Section */}
                     <div className="space-y-3">
                        <h4 className="text-sm font-bold text-stone-500 uppercase">Áreas de Atenção</h4>
                        <div className="grid grid-cols-2 gap-3">
@@ -1033,7 +974,6 @@ const App: React.FC = () => {
                        </div>
                     </div>
 
-                    {/* Bio Data (Small) */}
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                            <label className="block text-xs font-bold text-stone-500 uppercase mb-2">Idade</label>
@@ -1067,7 +1007,6 @@ const App: React.FC = () => {
            </div>
         )}
 
-        {/* SWAP MODAL FOR DASHBOARD */}
         {isSwapModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-fade-in flex flex-col max-h-[80vh]">
@@ -1121,13 +1060,10 @@ const App: React.FC = () => {
     );
   };
 
-  // --- Main Render Logic ---
-
   if (view === 'AUTH') {
     return <AuthScreen onSuccess={handleUserAuthenticated} />;
   }
   
-  // Guard check (should be handled by view state logic but safety first)
   if (!user && view !== 'AUTH') {
       setView('AUTH');
       return null;
@@ -1172,7 +1108,6 @@ const App: React.FC = () => {
         initialPlan={activePlan}
         onCancel={() => setView('JOURNEY')}
         onSave={(updatedPlan) => {
-          // Update the specific plan in the array
           const updatedPlans = plans.map(p => p.id === updatedPlan.id ? updatedPlan : p);
           savePlans(updatedPlans);
           setView('JOURNEY');
@@ -1187,7 +1122,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-zen-offwhite text-stone-800 font-sans relative">
-      {/* Dynamic Content */}
       <main className="min-h-screen">
         {view === 'DASHBOARD' && renderDashboard()}
         {view === 'LIBRARY' && <PoseLibrary />}
@@ -1196,7 +1130,7 @@ const App: React.FC = () => {
            <Journey 
              preferences={preferences} 
              history={history}
-             customPlan={activePlan} // Pass active plan (could be null if none)
+             customPlan={activePlan} 
              plans={plans}
              activePlanId={activePlanId}
              onSwitchPlan={(id) => savePlans(plans, id)}
@@ -1211,7 +1145,6 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Weekly Report Result Modal */}
       {weeklyReport && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl animate-fade-in text-center p-8 relative overflow-hidden">
@@ -1248,46 +1181,58 @@ const App: React.FC = () => {
           </div>
       )}
 
-      {/* Graduation / Evolution Modal */}
       {!weeklyReport && showGraduation && activePlan && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl animate-fade-in text-center p-8 relative overflow-hidden">
-                   {/* Confettiish effect */}
+              <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl animate-fade-in p-8 relative overflow-hidden flex flex-col max-h-[90vh]">
                    <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_120%,rgba(120,113,108,0.1),transparent)] pointer-events-none"></div>
                    
-                   <div className="w-24 h-24 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-6 animate-bounce-gentle">
-                       <Trophy size={48} className="text-yellow-500" />
-                   </div>
-
-                   <h2 className="text-3xl font-light text-sage-900 mb-2">Jornada Concluída!</h2>
-                   <p className="text-stone-500 mb-6">
-                       Você completou as 4 semanas de <strong>{activePlan.name}</strong>.
-                   </p>
-                   
-                   <div className="bg-stone-50 p-6 rounded-2xl mb-8 border border-stone-100">
-                       <p className="text-sm text-stone-600 mb-4">
-                           Seu corpo e mente evoluíram. É hora de dar o próximo passo para manter o fluxo de crescimento.
+                   <div className="text-center mb-6">
+                       <div className="w-24 h-24 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce-gentle">
+                           <Trophy size={48} className="text-yellow-500" />
+                       </div>
+                       <h2 className="text-3xl font-light text-sage-900 mb-2">Jornada Concluída!</h2>
+                       <p className="text-stone-500">
+                           Você completou <strong>{activePlan.name}</strong>. Escolha seu próximo caminho.
                        </p>
-                       <div className="flex items-center justify-center gap-2 text-sage-700 font-bold">
-                           <span>Nível Atual</span>
-                           <ArrowRight size={16} />
-                           <span className="text-sage-900">Próximo Nível</span>
+                   </div>
+                   
+                   <div className="flex-1 overflow-y-auto pr-2 mb-4">
+                       <h3 className="text-sm font-bold text-stone-400 uppercase tracking-wider mb-4">Caminhos Disponíveis</h3>
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                           {activePlan.nextPaths?.map((path) => (
+                               <button 
+                                   key={path.id}
+                                   onClick={() => handleSelectPathway(path)}
+                                   className="text-left bg-white border-2 border-stone-100 hover:border-sage-400 hover:shadow-lg p-5 rounded-2xl transition-all group flex flex-col h-full"
+                               >
+                                   <div className="flex items-center justify-between mb-3">
+                                       <Badge color={path.targetLevel === 'Avançado' ? 'orange' : path.targetLevel === 'Intermediário' ? 'blue' : 'green'}>
+                                           {path.targetLevel}
+                                       </Badge>
+                                       <div className="bg-sage-100 text-sage-700 p-1.5 rounded-full group-hover:bg-sage-600 group-hover:text-white transition-colors">
+                                            <ArrowRight size={16} />
+                                       </div>
+                                   </div>
+                                   <h4 className="text-lg font-bold text-sage-900 mb-1">{path.title}</h4>
+                                   <p className="text-sm text-stone-500 mb-3 flex-1">{path.description}</p>
+                                   <div className="flex items-center gap-2 text-xs text-sage-600 bg-sage-50 p-2 rounded-lg">
+                                       <GitBranch size={14} />
+                                       {path.reason}
+                                   </div>
+                               </button>
+                           ))}
                        </div>
                    </div>
 
-                   <div className="flex flex-col gap-3">
-                       <Button onClick={handleEvolvePlan} className="w-full justify-center bg-gradient-to-r from-sage-600 to-sage-500 hover:from-sage-700 hover:to-sage-600 shadow-lg shadow-sage-200 border-0">
-                           <ArrowUpCircle size={20} className="mr-2" /> Evoluir Jornada
-                       </Button>
-                       <Button variant="ghost" onClick={() => setShowGraduation(false)}>
-                           Continuar no mesmo nível
+                   <div className="text-center">
+                       <Button variant="ghost" onClick={() => setShowGraduation(false)} className="text-stone-400 hover:text-stone-600">
+                           Decidir Depois
                        </Button>
                    </div>
               </div>
           </div>
       )}
 
-      {/* Bottom Nav */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 px-2 py-4 flex justify-between items-center z-40 md:justify-center md:gap-8">
         <button 
           onClick={() => setView('DASHBOARD')}
