@@ -1,7 +1,7 @@
 
 
 export type Difficulty = 'Iniciante' | 'Intermediário' | 'Avançado';
-export type Category = 'Aquecimento' | 'Pé' | 'Sentado' | 'Inversão' | 'Restaurativa' | 'Core' | 'Finalização';
+export type Category = 'Aquecimento' | 'Pé' | 'Sentado' | 'Inversão' | 'Restaurativa' | 'Core' | 'Finalização' | 'Respiração';
 export type Goal = 'Flexibilidade' | 'Força' | 'Relaxamento' | 'Alívio de Dor';
 export type Duration = 15 | 30 | 45;
 export type Discomfort = 'Lombar' | 'Joelhos' | 'Pescoço/Ombros' | 'Punhos' | 'Nenhum';
@@ -57,6 +57,7 @@ export interface SessionRecord {
   routineName: string;
   duration: number; // minutes
   mood?: 'happy' | 'calm' | 'tired' | 'energized';
+  feedback?: FeedbackRecord; // Link feedback to session
 }
 
 export interface PlanDay {
@@ -64,6 +65,7 @@ export interface PlanDay {
   activityType: 'Rest' | 'Active';
   focus?: string;
   description?: string;
+  weekLabel?: number; // Para identificar a semana visualmente
 }
 
 export interface TrainingPlan {
@@ -89,4 +91,27 @@ export interface Article {
   isPremium?: boolean;
 }
 
-export type ViewState = 'AUTH' | 'ONBOARDING' | 'DASHBOARD' | 'PLAYER' | 'LIBRARY' | 'JOURNEY' | 'PLAN_EDITOR' | 'ROUTINE_EDITOR' | 'LEARNING';
+// --- NEW FEEDBACK / STORIES TYPES ---
+
+export type StoryType = 'POST_PRACTICE' | 'WEEKLY_CHECKIN' | 'WEEKLY_REVIEW';
+
+export interface FeedbackRecord {
+  type: StoryType;
+  date: string;
+  responses: {
+    question: string;
+    answer: string;
+    score?: number; // Optional numeric score for adaptation logic
+  }[];
+}
+
+export interface Memory {
+  id: string;
+  userId?: string;
+  caption: string;
+  mediaUrl: string; // URL da foto ou vídeo
+  type: 'photo' | 'video';
+  date: string;
+}
+
+export type ViewState = 'AUTH' | 'ONBOARDING' | 'DASHBOARD' | 'PLAYER' | 'LIBRARY' | 'JOURNEY' | 'PLAN_EDITOR' | 'ROUTINE_EDITOR' | 'LEARNING' | 'STORIES';

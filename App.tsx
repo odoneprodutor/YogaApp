@@ -1,6 +1,9 @@
 
+
+
+
 import React, { useState, useEffect } from 'react';
-import { UserPreferences, Routine, ViewState, Difficulty, Goal, Duration, SessionRecord, TrainingPlan, Discomfort, PlanDay, User } from './types';
+import { UserPreferences, Routine, ViewState, Difficulty, Goal, Duration, SessionRecord, TrainingPlan, Discomfort, PlanDay, User, FeedbackRecord, StoryType } from './types';
 import { generateRoutine } from './services/routineEngine';
 import { createPersonalizedPlan } from './services/planEngine';
 import { authService } from './services/auth';
@@ -11,6 +14,7 @@ import { PlanEditor } from './components/PlanEditor';
 import { RoutineEditor } from './components/RoutineEditor';
 import { AuthScreen } from './components/AuthScreen';
 import { LearningHub } from './components/LearningHub';
+import { StoriesOverlay } from './components/StoriesOverlay';
 import { Button, Card, Badge } from './components/ui';
 import { 
   LayoutDashboard, 
@@ -27,13 +31,17 @@ import {
   ArrowRight,
   Check,
   LogOut,
-  BookOpen
+  BookOpen,
+  X,
+  Save,
+  Star
 } from 'lucide-react';
 
 // Storage keys helper
 const getPrefsKey = (userId: string) => `yogaflow_prefs_${userId}`;
 const getPlanKey = (userId: string) => `yogaflow_plan_${userId}`;
 const getHistoryKey = (userId: string) => `yogaflow_history_${userId}`;
+const getWeeklyContextKey = (userId: string) => `yogaflow_weekly_ctx_${userId}`;
 
 const App: React.FC = () => {
   // Auth State
@@ -56,6 +64,14 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<SessionRecord[]>([]);
   const [currentRoutine, setCurrentRoutine] = useState<Routine | null>(null);
   const [onboardingStep, setOnboardingStep] = useState(0);
+  
+  // Dashboard Prefs Editor State
+  const [editingPrefs, setEditingPrefs] = useState<UserPreferences | null>(null);
+
+  // Stories State
+  const [storyType, setStoryType] = useState<StoryType>('POST_PRACTICE');
+  const [weeklyContext, setWeeklyContext] = useState<FeedbackRecord | null>(null);
+  const [weeklyReport, setWeeklyReport] = useState<{intention: string, result: string, insight: string} | null>(null);
 
   // --- Auth & Data Loading Effects ---
 
@@ -81,6 +97,7 @@ const App: React.FC = () => {
     const prefsStr = localStorage.getItem(getPrefsKey(authenticatedUser.id));
     const planStr = localStorage.getItem(getPlanKey(authenticatedUser.id));
     const historyStr = localStorage.getItem(getHistoryKey(authenticatedUser.id));
+    const weeklyCtxStr = localStorage.getItem(getWeeklyContextKey(authenticatedUser.id));
 
     if (prefsStr) {
       const loadedPrefs = JSON.parse(prefsStr);
@@ -104,6 +121,10 @@ const App: React.FC = () => {
     } else {
       // Demo history for new users just to show UI (optional, remove for prod)
       setHistory([]);
+    }
+
+    if (weeklyCtxStr) {
+        setWeeklyContext(JSON.parse(weeklyCtxStr));
     }
 
     setIsAuthChecking(false);
@@ -146,6 +167,14 @@ const App: React.FC = () => {
       localStorage.setItem(getHistoryKey(user.id), JSON.stringify(newHistory));
     }
   };
+  
+  const saveWeeklyContext = (context: FeedbackRecord | null) => {
+      setWeeklyContext(context);
+      if (user) {
+          if (context) localStorage.setItem(getWeeklyContextKey(user.id), JSON.stringify(context));
+          else localStorage.removeItem(getWeeklyContextKey(user.id));
+      }
+  };
 
   // --- Handlers ---
 
@@ -161,6 +190,23 @@ const App: React.FC = () => {
     savePreferences(finalPrefs);
     setView('DASHBOARD');
   };
+  
+  // Handler for Quick Edit Modal on Dashboard
+  const handleOpenPrefsEditor = () => {
+      setEditingPrefs({ ...preferences });
+  };
+  
+  const handleSavePrefsEditor = () => {
+      if (!editingPrefs) return;
+      
+      savePreferences(editingPrefs);
+      
+      // Regenerate plan to reflect new preferences
+      const newPlan = createPersonalizedPlan(editingPrefs);
+      saveCustomPlan(newPlan);
+      
+      setEditingPrefs(null);
+  };
 
   const handleGenerate = () => {
     const routine = generateRoutine(preferences);
@@ -169,17 +215,9 @@ const App: React.FC = () => {
   };
 
   const handleRoutineComplete = () => {
-    if (currentRoutine) {
-      const newRecord: SessionRecord = {
-        id: Date.now().toString(),
-        userId: user?.id,
-        date: new Date().toISOString().split('T')[0],
-        routineName: currentRoutine.name,
-        duration: Math.round(currentRoutine.totalDuration / 60)
-      };
-      saveHistory([newRecord, ...history]);
-    }
-    setView('JOURNEY');
+    // Instead of finishing immediately, we trigger the Post Practice Story
+    setStoryType('POST_PRACTICE');
+    setView('STORIES');
   };
 
   const handleMarkDayComplete = (dateStr: string, planDay: PlanDay) => {
@@ -202,6 +240,74 @@ const App: React.FC = () => {
       ...activePlan,
       schedule: newSchedule
     });
+  };
+
+  const handleStoriesComplete = (feedback: FeedbackRecord) => {
+    // 1. Post Practice Logic
+    if (feedback.type === 'POST_PRACTICE' && currentRoutine) {
+        const newRecord: SessionRecord = {
+            id: Date.now().toString(),
+            userId: user?.id,
+            date: new Date().toISOString().split('T')[0],
+            routineName: currentRoutine.name,
+            duration: Math.round(currentRoutine.totalDuration / 60),
+            feedback: feedback
+        };
+        saveHistory([newRecord, ...history]);
+        
+        // --- ADAPTATION LOGIC ---
+        // Check difficulty feedback
+        const difficultyResponse = feedback.responses.find(r => r.question.includes("intensidade"));
+        if (difficultyResponse && difficultyResponse.score !== undefined) {
+             if (difficultyResponse.score === -1) {
+                 // Too Hard -> Decrease level if possible
+                 if (preferences.level === 'Avançado') savePreferences({...preferences, level: 'Intermediário'});
+                 else if (preferences.level === 'Intermediário') savePreferences({...preferences, level: 'Iniciante'});
+             } else if (difficultyResponse.score === 1) {
+                 // Too Easy -> Increase level if possible
+                 if (preferences.level === 'Iniciante') savePreferences({...preferences, level: 'Intermediário'});
+                 else if (preferences.level === 'Intermediário') savePreferences({...preferences, level: 'Avançado'});
+             }
+        }
+    } 
+    // 2. Weekly Checkin (Start of Week)
+    else if (feedback.type === 'WEEKLY_CHECKIN') {
+        saveWeeklyContext(feedback);
+        console.log("Weekly Intention Set:", feedback);
+    }
+    // 3. Weekly Review (End of Week) -> GENERATE RESULT
+    else if (feedback.type === 'WEEKLY_REVIEW') {
+        const intention = weeklyContext?.responses.find(r => r.question.includes('intenção'))?.answer || "Não definida";
+        const reality = feedback.responses.find(r => r.question.includes('intenção'))?.answer || "Não informado"; // Did you meet it?
+        const feeling = feedback.responses.find(r => r.question.includes('sentimento'))?.answer || "Neutro";
+
+        // Generate Insight
+        let insight = "";
+        if (reality.includes("Sim")) {
+            insight = "Sua dedicação foi recompensada! Você conseguiu alinhar sua mente com suas ações. Mantenha esse foco para a próxima semana.";
+        } else if (reality.includes("Parcialmente")) {
+            insight = "Progresso não é linear. Você deu passos importantes, mesmo que o caminho tenha mudado. O importante é a constância.";
+        } else {
+            insight = "Tudo bem mudar de rota. Escutar o que o corpo precisa é mais valioso do que seguir um plano rígido. Recomece com gentileza.";
+        }
+
+        setWeeklyReport({
+            intention,
+            result: `${reality} - ${feeling}`,
+            insight
+        });
+        
+        // Reset context for next week
+        saveWeeklyContext(null);
+    }
+
+    // Return to Journey
+    setView('JOURNEY');
+  };
+
+  const handleStartCheckin = (type: 'WEEKLY_CHECKIN' | 'WEEKLY_REVIEW') => {
+      setStoryType(type);
+      setView('STORIES');
   };
 
   // --- Views ---
@@ -490,21 +596,21 @@ const App: React.FC = () => {
         <section className="mb-8">
            <h3 className="text-lg font-medium text-stone-700 mb-4">Ajustar Preferências</h3>
            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card className="p-4 flex items-center justify-between cursor-pointer hover:border-sage-300 transition-colors" onClick={() => { setView('ONBOARDING'); setOnboardingStep(3); }}>
+              <Card className="p-4 flex items-center justify-between cursor-pointer hover:border-sage-300 transition-colors" onClick={handleOpenPrefsEditor}>
                  <div>
                     <p className="text-xs text-stone-400 uppercase font-bold">Objetivo</p>
                     <p className="text-sage-800 font-medium">{preferences.goal}</p>
                  </div>
                  <Zap size={20} className="text-stone-300" />
               </Card>
-              <Card className="p-4 flex items-center justify-between cursor-pointer hover:border-sage-300 transition-colors" onClick={() => { setView('ONBOARDING'); setOnboardingStep(4); }}>
+              <Card className="p-4 flex items-center justify-between cursor-pointer hover:border-sage-300 transition-colors" onClick={handleOpenPrefsEditor}>
                  <div>
                     <p className="text-xs text-stone-400 uppercase font-bold">Duração</p>
                     <p className="text-sage-800 font-medium">{preferences.duration} Min</p>
                  </div>
                  <Clock size={20} className="text-stone-300" />
               </Card>
-              <Card className="p-4 flex items-center justify-between cursor-pointer hover:border-sage-300 transition-colors" onClick={() => { setView('ONBOARDING'); setOnboardingStep(1); }}>
+              <Card className="p-4 flex items-center justify-between cursor-pointer hover:border-sage-300 transition-colors" onClick={handleOpenPrefsEditor}>
                  <div>
                     <p className="text-xs text-stone-400 uppercase font-bold">Foco Corporal</p>
                     <p className="text-sage-800 font-medium">
@@ -515,6 +621,154 @@ const App: React.FC = () => {
               </Card>
            </div>
         </section>
+
+        {/* PREFERENCES EDITOR MODAL */}
+        {editingPrefs && (
+           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl animate-fade-in flex flex-col max-h-[90vh]">
+                 <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50 rounded-t-3xl">
+                    <h3 className="text-xl font-light text-sage-900 flex items-center gap-2">
+                       <Edit2 size={20} /> Editar Preferências do Plano
+                    </h3>
+                    <button onClick={() => setEditingPrefs(null)} className="text-stone-400 hover:text-stone-600">
+                       <X size={24} />
+                    </button>
+                 </div>
+                 
+                 <div className="overflow-y-auto p-6 flex-1 space-y-8">
+                    
+                    {/* Goal Section */}
+                    <div className="space-y-3">
+                       <h4 className="text-sm font-bold text-stone-500 uppercase">Objetivo Principal</h4>
+                       <div className="grid grid-cols-2 gap-3">
+                          {(['Flexibilidade', 'Força', 'Relaxamento', 'Alívio de Dor'] as Goal[]).map((g) => (
+                             <button
+                               key={g}
+                               onClick={() => setEditingPrefs({...editingPrefs, goal: g})}
+                               className={`p-3 rounded-xl border-2 transition-all text-sm font-medium
+                                 ${editingPrefs.goal === g 
+                                   ? 'border-sage-500 bg-sage-50 text-sage-800' 
+                                   : 'border-stone-100 bg-white text-stone-600 hover:border-sage-200'
+                                 }
+                               `}
+                             >
+                               {g}
+                             </button>
+                          ))}
+                       </div>
+                    </div>
+
+                    {/* Level Section */}
+                    <div className="space-y-3">
+                       <h4 className="text-sm font-bold text-stone-500 uppercase">Nível de Experiência</h4>
+                       <div className="grid grid-cols-3 gap-3">
+                          {(['Iniciante', 'Intermediário', 'Avançado'] as Difficulty[]).map((l) => (
+                             <button
+                               key={l}
+                               onClick={() => setEditingPrefs({...editingPrefs, level: l})}
+                               className={`p-3 rounded-xl border-2 transition-all text-sm font-medium
+                                 ${editingPrefs.level === l
+                                   ? 'border-sage-500 bg-sage-50 text-sage-800' 
+                                   : 'border-stone-100 bg-white text-stone-600 hover:border-sage-200'
+                                 }
+                               `}
+                             >
+                               {l}
+                             </button>
+                          ))}
+                       </div>
+                    </div>
+
+                    {/* Duration Section */}
+                    <div className="space-y-3">
+                       <h4 className="text-sm font-bold text-stone-500 uppercase">Duração (Minutos)</h4>
+                       <div className="grid grid-cols-3 gap-3">
+                          {([15, 30, 45] as Duration[]).map((d) => (
+                             <button
+                               key={d}
+                               onClick={() => setEditingPrefs({...editingPrefs, duration: d})}
+                               className={`p-3 rounded-xl border-2 transition-all text-sm font-medium
+                                 ${editingPrefs.duration === d
+                                   ? 'border-sage-500 bg-sage-50 text-sage-800' 
+                                   : 'border-stone-100 bg-white text-stone-600 hover:border-sage-200'
+                                 }
+                               `}
+                             >
+                               {d} min
+                             </button>
+                          ))}
+                       </div>
+                    </div>
+
+                    {/* Discomforts Section */}
+                    <div className="space-y-3">
+                       <h4 className="text-sm font-bold text-stone-500 uppercase">Áreas de Atenção</h4>
+                       <div className="grid grid-cols-2 gap-3">
+                          {(['Lombar', 'Joelhos', 'Pescoço/Ombros', 'Punhos', 'Nenhum'] as Discomfort[]).map((option) => {
+                             const isSelected = editingPrefs.discomforts.includes(option);
+                             const isNone = option === 'Nenhum';
+                             return (
+                               <button
+                                 key={option}
+                                 onClick={() => {
+                                   if (isNone) {
+                                     setEditingPrefs({...editingPrefs, discomforts: ['Nenhum']});
+                                   } else {
+                                     const current = editingPrefs.discomforts.filter(d => d !== 'Nenhum');
+                                     const newDiscomforts = current.includes(option)
+                                       ? current.filter(d => d !== option)
+                                       : [...current, option];
+                                     setEditingPrefs({...editingPrefs, discomforts: newDiscomforts});
+                                   }
+                                 }}
+                                 className={`p-3 rounded-xl border-2 transition-all text-sm font-medium flex items-center justify-center gap-2
+                                   ${isSelected 
+                                     ? 'border-sage-500 bg-sage-50 text-sage-800' 
+                                     : 'border-stone-100 bg-white text-stone-600 hover:border-sage-200'
+                                   }
+                                 `}
+                               >
+                                 {isSelected && <Check size={14} className="text-sage-600" />}
+                                 {option}
+                               </button>
+                             );
+                          })}
+                       </div>
+                    </div>
+
+                    {/* Bio Data (Small) */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                           <label className="block text-xs font-bold text-stone-500 uppercase mb-2">Idade</label>
+                           <input 
+                              type="number"
+                              value={editingPrefs.age || ''}
+                              onChange={(e) => setEditingPrefs({...editingPrefs, age: parseInt(e.target.value) || undefined})}
+                              className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sage-300"
+                           />
+                        </div>
+                        <div>
+                           <label className="block text-xs font-bold text-stone-500 uppercase mb-2">Peso (kg)</label>
+                           <input 
+                              type="number"
+                              value={editingPrefs.weight || ''}
+                              onChange={(e) => setEditingPrefs({...editingPrefs, weight: parseInt(e.target.value) || undefined})}
+                              className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sage-300"
+                           />
+                        </div>
+                    </div>
+
+                 </div>
+
+                 <div className="p-6 border-t border-stone-100 flex justify-end gap-3 rounded-b-3xl bg-white">
+                    <Button variant="ghost" onClick={() => setEditingPrefs(null)}>Cancelar</Button>
+                    <Button onClick={handleSavePrefsEditor}>
+                       <Save size={18} /> Salvar & Atualizar Plano
+                    </Button>
+                 </div>
+              </div>
+           </div>
+        )}
       </div>
     );
   };
@@ -529,6 +783,16 @@ const App: React.FC = () => {
   if (!user && view !== 'AUTH') {
       setView('AUTH');
       return null;
+  }
+
+  if (view === 'STORIES') {
+      return (
+          <StoriesOverlay 
+            type={storyType}
+            onComplete={handleStoriesComplete}
+            onClose={() => setView('JOURNEY')}
+          />
+      );
   }
   
   if (view === 'PLAYER' && currentRoutine) {
@@ -572,7 +836,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-zen-offwhite text-stone-800 font-sans">
+    <div className="min-h-screen bg-zen-offwhite text-stone-800 font-sans relative">
       {/* Dynamic Content */}
       <main className="min-h-screen">
         {view === 'DASHBOARD' && renderDashboard()}
@@ -587,9 +851,47 @@ const App: React.FC = () => {
              onEditPlan={() => setView('PLAN_EDITOR')}
              onUpdateDay={handleUpdateDay}
              onMarkComplete={handleMarkDayComplete}
+             onStartCheckin={handleStartCheckin}
            />
         )}
       </main>
+
+      {/* Weekly Report Result Modal */}
+      {weeklyReport && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl animate-fade-in text-center p-8 relative overflow-hidden">
+                   <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
+                   
+                   <div className="w-20 h-20 bg-purple-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                       <Star size={32} className="text-purple-500" fill="currentColor"/>
+                   </div>
+
+                   <h2 className="text-2xl font-bold text-sage-900 mb-2">Sua Semana em Resumo</h2>
+                   <p className="text-stone-500 mb-8">Conectando sua intenção com sua realidade.</p>
+                   
+                   <div className="grid grid-cols-2 gap-4 mb-8 text-left">
+                       <div className="bg-stone-50 p-4 rounded-xl">
+                           <p className="text-xs font-bold text-stone-400 uppercase">Intenção Inicial</p>
+                           <p className="text-lg font-medium text-sage-800">{weeklyReport.intention}</p>
+                       </div>
+                       <div className="bg-stone-50 p-4 rounded-xl">
+                           <p className="text-xs font-bold text-stone-400 uppercase">Resultado Real</p>
+                           <p className="text-lg font-medium text-sage-800">{weeklyReport.result}</p>
+                       </div>
+                   </div>
+
+                   <div className="bg-indigo-50 p-6 rounded-xl text-indigo-900 italic mb-8 relative">
+                        <span className="absolute top-2 left-2 text-4xl text-indigo-200 font-serif leading-none">"</span>
+                        {weeklyReport.insight}
+                        <span className="absolute bottom-[-10px] right-4 text-4xl text-indigo-200 font-serif leading-none">"</span>
+                   </div>
+
+                   <Button onClick={() => setWeeklyReport(null)} className="w-full">
+                       Iniciar Nova Semana
+                   </Button>
+              </div>
+          </div>
+      )}
 
       {/* Bottom Nav */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 px-2 py-4 flex justify-between items-center z-40 md:justify-center md:gap-8">

@@ -5,6 +5,41 @@ const getImg = (text: string) => `https://placehold.co/600x400/e7e5e4/44403c?tex
 const getVideo = () => `https://www.youtube.com/embed/v7AYKMP6rOE?autoplay=1&mute=1&controls=0&loop=1`; // Generic peaceful nature background as placeholder
 
 export const POSES: Pose[] = [
+  // RESPIRAÇÃO (PRANAYAMA)
+  {
+    id: '100',
+    sanskritName: 'Nadi Shodhana',
+    portugueseName: 'Respiração das Narinas Alternadas',
+    difficulty: 'Iniciante',
+    category: 'Respiração',
+    benefits: ['Equilíbrio Mental', 'Redução de Stress', 'Foco'],
+    media: { thumbnailUrl: getImg('Nadi Shodhana'), videoEmbedUrl: getVideo() },
+    durationDefault: 180,
+    description: 'Use o polegar e o anelar para fechar alternadamente as narinas, respirando de forma rítmica e suave.'
+  },
+  {
+    id: '101',
+    sanskritName: 'Kapalabhati',
+    portugueseName: 'Respiração do Crânio Brilhante',
+    difficulty: 'Intermediário',
+    category: 'Respiração',
+    benefits: ['Energia', 'Limpeza', 'Aquecimento'],
+    media: { thumbnailUrl: getImg('Kapalabhati'), videoEmbedUrl: getVideo() },
+    durationDefault: 120,
+    description: 'Exalações curtas e vigorosas pelo nariz, com inalações passivas. Foco no movimento do abdômen.'
+  },
+  {
+    id: '102',
+    sanskritName: 'Sama Vritti',
+    portugueseName: 'Respiração Quadrada',
+    difficulty: 'Iniciante',
+    category: 'Respiração',
+    benefits: ['Calma', 'Controle', 'Ansiedade'],
+    media: { thumbnailUrl: getImg('Respiração Quadrada'), videoEmbedUrl: getVideo() },
+    durationDefault: 180,
+    description: 'Inspire em 4 tempos, segure 4 tempos, expire 4 tempos, segure vazio 4 tempos.'
+  },
+
   // AQUECIMENTO
   {
     id: '1',

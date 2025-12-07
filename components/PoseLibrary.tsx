@@ -1,15 +1,19 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { Pose, Category, Difficulty } from '../types';
 import { poseStore } from '../services/poseStore';
 import { Card, Badge, Button } from './ui';
-import { Search, Filter, Settings, Edit, Link as LinkIcon, Save, X, RotateCcw, Plus, Image as ImageIcon } from 'lucide-react';
+import { Search, Settings, Edit, Link as LinkIcon, Save, X, RotateCcw, Plus, Image as ImageIcon, Wind, Activity } from 'lucide-react';
 
 export const PoseLibrary: React.FC = () => {
   const [poses, setPoses] = useState<Pose[]>([]);
   const [filterCategory, setFilterCategory] = useState<Category | 'Todos'>('Todos');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPoseId, setSelectedPoseId] = useState<string | null>(null);
+  
+  // Library Mode: Asana (Poses) vs Pranayama (Breath)
+  const [viewMode, setViewMode] = useState<'ASANA' | 'PRANAYAMA'>('ASANA');
   
   // Admin State
   const [isAdminMode, setIsAdminMode] = useState(false);
@@ -38,13 +42,24 @@ export const PoseLibrary: React.FC = () => {
   };
 
   const filteredPoses = poses.filter(pose => {
+    // 1. Filter by Mode (Asana vs Pranayama)
+    const isPranayama = pose.category === 'Respiração';
+    if (viewMode === 'ASANA' && isPranayama) return false;
+    if (viewMode === 'PRANAYAMA' && !isPranayama) return false;
+
+    // 2. Filter by Category Dropdown
     const matchesCategory = filterCategory === 'Todos' || pose.category === filterCategory;
+    
+    // 3. Search
     const matchesSearch = pose.portugueseName.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           pose.sanskritName.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesCategory && matchesSearch;
   });
 
-  const categories: Category[] = ['Aquecimento', 'Pé', 'Core', 'Sentado', 'Inversão', 'Restaurativa', 'Finalização'];
+  const categories: Category[] = viewMode === 'ASANA' 
+      ? ['Aquecimento', 'Pé', 'Core', 'Sentado', 'Inversão', 'Restaurativa', 'Finalização']
+      : ['Respiração'];
+
   const difficulties: Difficulty[] = ['Iniciante', 'Intermediário', 'Avançado'];
 
   const handleEditClick = (e: React.MouseEvent, pose: Pose) => {
@@ -108,10 +123,10 @@ export const PoseLibrary: React.FC = () => {
 
   return (
     <div className="pb-24 pt-6 px-4 max-w-5xl mx-auto">
-      <div className="flex justify-between items-start mb-8">
+      <div className="flex justify-between items-start mb-4">
         <div>
-            <h2 className="text-3xl font-light text-sage-800 mb-2">Biblioteca de Asanas</h2>
-            <p className="text-stone-500">Explore nossa coleção de {poses.length} posturas.</p>
+            <h2 className="text-3xl font-light text-sage-900 mb-2">Biblioteca</h2>
+            <p className="text-stone-500">Explore nossa coleção de estudos.</p>
         </div>
         <div className="flex gap-2">
             {isAdminMode && (
@@ -119,7 +134,7 @@ export const PoseLibrary: React.FC = () => {
                     onClick={() => setIsAddModalOpen(true)}
                     className="flex items-center gap-2 px-4 py-2 bg-sage-600 text-white rounded-full hover:bg-sage-700 transition-colors shadow-md"
                 >
-                    <Plus size={18} /> Nova Postura
+                    <Plus size={18} /> Novo Item
                 </button>
             )}
             <button 
@@ -132,7 +147,31 @@ export const PoseLibrary: React.FC = () => {
         </div>
       </div>
 
-      {/* Controls */}
+      {/* Main Tabs (Asana vs Breath) */}
+      <div className="flex gap-4 border-b border-stone-200 mb-6">
+        <button
+          onClick={() => { setViewMode('ASANA'); setFilterCategory('Todos'); }}
+          className={`pb-3 px-2 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${
+            viewMode === 'ASANA' 
+              ? 'border-sage-600 text-sage-800' 
+              : 'border-transparent text-stone-400 hover:text-stone-600'
+          }`}
+        >
+          <Activity size={18} /> Posturas (Asanas)
+        </button>
+        <button
+          onClick={() => { setViewMode('PRANAYAMA'); setFilterCategory('Respiração'); }}
+          className={`pb-3 px-2 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${
+            viewMode === 'PRANAYAMA' 
+              ? 'border-sage-600 text-sage-800' 
+              : 'border-transparent text-stone-400 hover:text-stone-600'
+          }`}
+        >
+          <Wind size={18} /> Respiração (Pranayama)
+        </button>
+      </div>
+
+      {/* Filters & Search */}
       <div className="flex flex-col md:flex-row gap-4 mb-8 sticky top-0 bg-zen-offwhite/95 backdrop-blur-md z-10 py-4 -mx-4 px-4 border-b border-stone-100">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={18} />
@@ -144,23 +183,27 @@ export const PoseLibrary: React.FC = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 no-scrollbar">
-          <button 
-            onClick={() => setFilterCategory('Todos')}
-            className={`px-4 py-2 rounded-full text-sm whitespace-nowrap transition-colors ${filterCategory === 'Todos' ? 'bg-sage-600 text-white' : 'bg-white border border-stone-200 text-stone-600'}`}
-          >
-            Todos
-          </button>
-          {categories.map(cat => (
-             <button 
-             key={cat}
-             onClick={() => setFilterCategory(cat)}
-             className={`px-4 py-2 rounded-full text-sm whitespace-nowrap transition-colors ${filterCategory === cat ? 'bg-sage-600 text-white' : 'bg-white border border-stone-200 text-stone-600'}`}
-           >
-             {cat}
-           </button>
-          ))}
-        </div>
+        
+        {/* Only show categories if there are multiple options (mainly for Asana mode) */}
+        {categories.length > 1 && (
+            <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 no-scrollbar">
+            <button 
+                onClick={() => setFilterCategory('Todos')}
+                className={`px-4 py-2 rounded-full text-sm whitespace-nowrap transition-colors ${filterCategory === 'Todos' ? 'bg-sage-600 text-white' : 'bg-white border border-stone-200 text-stone-600'}`}
+            >
+                Todos
+            </button>
+            {categories.map(cat => (
+                <button 
+                key={cat}
+                onClick={() => setFilterCategory(cat)}
+                className={`px-4 py-2 rounded-full text-sm whitespace-nowrap transition-colors ${filterCategory === cat ? 'bg-sage-600 text-white' : 'bg-white border border-stone-200 text-stone-600'}`}
+            >
+                {cat}
+            </button>
+            ))}
+            </div>
+        )}
       </div>
 
       {/* Grid */}
@@ -188,13 +231,15 @@ export const PoseLibrary: React.FC = () => {
                    </Badge>
                  </div>
                  
-                 {/* Admin Edit Overlay */}
+                 {/* Admin Edit Button - Always visible if admin, positioned top-left */}
                  {isAdminMode && (
-                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                         <Button onClick={(e) => handleEditClick(e, pose)} className="bg-white text-sage-800 hover:bg-sage-50">
-                             <Edit size={16} /> Editar Vídeo
-                         </Button>
-                     </div>
+                     <button 
+                        onClick={(e) => handleEditClick(e, pose)} 
+                        className="absolute top-2 left-2 p-2 bg-white/90 hover:bg-white text-sage-700 rounded-full shadow-sm backdrop-blur-sm transition-all hover:scale-105 z-10"
+                        title="Editar URL do Vídeo"
+                     >
+                         <Edit size={16} />
+                     </button>
                  )}
               </div>
               <div className="p-4">
@@ -216,7 +261,7 @@ export const PoseLibrary: React.FC = () => {
       
       {filteredPoses.length === 0 && (
         <div className="text-center py-20 text-stone-400">
-          <p>Nenhuma postura encontrada para estes filtros.</p>
+          <p>Nenhum item encontrado para estes filtros.</p>
         </div>
       )}
 
@@ -276,7 +321,7 @@ export const PoseLibrary: React.FC = () => {
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
            <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl animate-fade-in flex flex-col max-h-[90vh]">
               <div className="p-6 border-b border-stone-100 flex justify-between items-center bg-stone-50 rounded-t-3xl">
-                  <h3 className="text-xl font-light text-sage-900">Adicionar Nova Postura</h3>
+                  <h3 className="text-xl font-light text-sage-900">Adicionar Novo Item</h3>
                   <button onClick={() => setIsAddModalOpen(false)} className="text-stone-400 hover:text-stone-600">
                       <X size={24} />
                   </button>
@@ -317,7 +362,8 @@ export const PoseLibrary: React.FC = () => {
                              value={newPoseData.category}
                              onChange={(e) => setNewPoseData({...newPoseData, category: e.target.value as Category})}
                           >
-                             {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                             {/* Combine all possible categories for the generic adder */}
+                             {['Respiração', 'Aquecimento', 'Pé', 'Core', 'Sentado', 'Inversão', 'Restaurativa', 'Finalização'].map(c => <option key={c} value={c}>{c}</option>)}
                           </select>
                        </div>
                        <div>
@@ -395,7 +441,7 @@ export const PoseLibrary: React.FC = () => {
 
               <div className="p-6 border-t border-stone-100 flex justify-end gap-3 rounded-b-3xl bg-white">
                   <Button variant="ghost" onClick={() => setIsAddModalOpen(false)}>Cancelar</Button>
-                  <Button type="submit" form="add-pose-form">Salvar Postura</Button>
+                  <Button type="submit" form="add-pose-form">Salvar</Button>
               </div>
            </div>
         </div>

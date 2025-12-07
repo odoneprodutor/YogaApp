@@ -1,13 +1,12 @@
 
 
 
-
-import React, { useState, useMemo } from 'react';
-import { UserPreferences, SessionRecord, TrainingPlan, PlanDay } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { UserPreferences, SessionRecord, TrainingPlan, PlanDay, Memory } from '../types';
 import { createPersonalizedPlan } from '../services/planEngine';
 import { Calendar } from './Calendar';
 import { Card, Badge, Button } from './ui';
-import { Calendar as CalendarIcon, Target, Trophy, Clock, Check, Edit3, Repeat, Coffee, Zap, X, Activity, Play, CheckCircle, Lightbulb, Info } from 'lucide-react';
+import { Calendar as CalendarIcon, Target, Trophy, Clock, Check, Edit3, Repeat, Coffee, Zap, X, Activity, Play, CheckCircle, Lightbulb, Info, Trash2, CalendarRange } from 'lucide-react';
 
 interface JourneyProps {
   preferences: UserPreferences;
@@ -17,13 +16,45 @@ interface JourneyProps {
   onEditPlan: () => void; // Trigger for editing whole plan
   onUpdateDay: (dayIndex: number, day: PlanDay) => void; // Update specific day
   onMarkComplete: (dateStr: string, planDay: PlanDay) => void;
+  onStartCheckin: (type: 'WEEKLY_CHECKIN' | 'WEEKLY_REVIEW') => void; // Trigger for weekly stories
 }
 
-export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPlan, onStartRoutine, onEditPlan, onUpdateDay, onMarkComplete }) => {
+const STORAGE_KEY_MEMORIES = 'yogaflow_memories';
+
+export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPlan, onStartRoutine, onEditPlan, onUpdateDay, onMarkComplete, onStartCheckin }) => {
   const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date());
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(new Date().toISOString().split('T')[0]);
   const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
   const [showInsights, setShowInsights] = useState(true);
+
+  // Week Selector State
+  const [activeWeekTab, setActiveWeekTab] = useState(0);
+
+  // Memories/Gallery State (View Only now)
+  const [memories, setMemories] = useState<Memory[]>([]);
+
+  // Load Memories
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_MEMORIES);
+    if (saved) {
+        try {
+            setMemories(JSON.parse(saved));
+        } catch (e) { console.error(e); }
+    }
+  }, []);
+
+  const saveMemories = (entries: Memory[]) => {
+      setMemories(entries);
+      localStorage.setItem(STORAGE_KEY_MEMORIES, JSON.stringify(entries));
+  };
+
+  const handleDeleteMemory = (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (confirm('Tem certeza que deseja apagar esta memória?')) {
+          const filtered = memories.filter(m => m.id !== id);
+          saveMemories(filtered);
+      }
+  };
 
   // Use custom plan if available, otherwise derive from goals
   const plan = useMemo(() => {
@@ -43,59 +74,61 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
     const date = new Date(dateStr);
     const dayOfWeek = date.getDay(); // 0-6
     
-    // Calcular qual semana do plano estamos
-    // Se não tiver data de início, assume semana 1. Se tiver, calcula a diferença em dias.
     let weekIndex = 0;
     if (preferences.startDate && plan.weeks) {
         const start = new Date(preferences.startDate);
-        // Reset hours to compare purely dates
         start.setHours(0,0,0,0);
         const current = new Date(dateStr);
         current.setHours(0,0,0,0);
-        
         const diffTime = current.getTime() - start.getTime();
         const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-        
-        if (diffDays >= 0) {
-            weekIndex = Math.floor(diffDays / 7);
-            // Se passar do número de semanas do plano, repete a última ou volta pra primeira (cíclico)
-            // Aqui vamos fazer cíclico para o plano durar para sempre
-            weekIndex = weekIndex % plan.weeks.length;
-        }
+        if (diffDays >= 0) weekIndex = Math.floor(diffDays / 7) % plan.weeks.length;
     }
 
-    // Se tiver suporte a semanas múltiplas, pega da semana correta, senão pega do schedule base
     if (plan.weeks && plan.weeks.length > weekIndex) {
         return {
             ...plan.weeks[weekIndex][dayOfWeek],
-            weekLabel: weekIndex + 1 // Add visual indicator of which week it is
+            weekLabel: weekIndex + 1
         };
     }
-    
     return plan.schedule[dayOfWeek];
   };
 
   const selectedDayPlan: (PlanDay & { weekLabel?: number }) | null = selectedDateStr ? getDayPlan(selectedDateStr) : null;
   const isToday = selectedDateStr === new Date().toISOString().split('T')[0];
 
+  // Logic to determine Check-in or Review Availability
+  const checkinStatus = useMemo(() => {
+      if (!preferences.startDate) return 'CHECKIN'; // New users see it initially on Day 1 (today)
+      
+      const start = new Date(preferences.startDate);
+      start.setHours(0,0,0,0);
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      
+      const diffTime = today.getTime() - start.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      const dayOfCycle = diffDays % 7;
+      
+      // Day 0 = Start of week (Check-in)
+      // Day 6 = End of week (Review)
+      if (dayOfCycle === 0) return 'CHECKIN';
+      if (dayOfCycle === 6) return 'REVIEW';
+      return null;
+  }, [preferences.startDate]);
+
+  // Sync active week tab with selected date if user clicks calendar
+  useEffect(() => {
+      if (selectedDayPlan?.weekLabel) {
+          setActiveWeekTab(selectedDayPlan.weekLabel - 1);
+      }
+  }, [selectedDayPlan?.weekLabel]);
+
   const handleSwapPractice = (type: 'Active' | 'Rest', focus?: string) => {
      if (!selectedDateStr) return;
-     
      const date = new Date(selectedDateStr);
      const dayIndex = date.getDay();
-     
-     // Need to find which week index we are updating
-     let weekIndex = 0;
-     if (preferences.startDate && plan.weeks) {
-        const start = new Date(preferences.startDate);
-        start.setHours(0,0,0,0);
-        const current = new Date(selectedDateStr);
-        current.setHours(0,0,0,0);
-        const diffTime = current.getTime() - start.getTime();
-        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-        if (diffDays >= 0) weekIndex = Math.floor(diffDays / 7) % plan.weeks.length;
-     }
-
      let newDay: PlanDay;
 
      if (type === 'Rest') {
@@ -113,8 +146,7 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
             description: 'Sessão personalizada trocada manualmente.'
         };
      }
-
-     onUpdateDay(dayIndex, newDay); // This currently only updates the active schedule (Week 1 usually)
+     onUpdateDay(dayIndex, newDay);
      setIsSwapModalOpen(false);
   };
 
@@ -127,11 +159,65 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
 
   return (
     <div className="pb-24 pt-8 px-4 max-w-5xl mx-auto animate-fade-in relative">
-      <div className="mb-8 flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-light text-sage-900">Sua Jornada</h1>
-          <p className="text-stone-500">Acompanhe seu progresso e siga seu plano.</p>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-3xl font-light text-sage-900">Sua Jornada</h1>
+        <p className="text-stone-500">Acompanhe seu progresso e siga seu plano.</p>
+      </div>
+
+      {/* --- STORIES & MEMORIES BAR --- */}
+      <div className="flex gap-4 overflow-x-auto pb-6 mb-2 no-scrollbar items-start">
+        
+        {/* 1. Weekly Checkin / Review (Conditional) */}
+        {checkinStatus && (
+            <button 
+                onClick={() => onStartCheckin(checkinStatus === 'CHECKIN' ? 'WEEKLY_CHECKIN' : 'WEEKLY_REVIEW')}
+                className="group flex flex-col items-center gap-2 min-w-[72px] cursor-pointer"
+            >
+                <div className={`w-16 h-16 rounded-full p-[3px] bg-gradient-to-tr ${checkinStatus === 'CHECKIN' ? 'from-yellow-400 via-orange-500 to-red-500' : 'from-indigo-400 via-purple-500 to-pink-500'} group-hover:scale-105 transition-transform shadow-sm`}>
+                    <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border-[3px] border-white text-xs text-center font-bold text-stone-600 leading-tight">
+                        {checkinStatus === 'CHECKIN' ? 'Início Semana' : 'Review Final'}
+                    </div>
+                </div>
+                <span className="text-[11px] font-medium text-stone-600 truncate max-w-full">
+                    {checkinStatus === 'CHECKIN' ? 'Intenção' : 'Resultado'}
+                </span>
+            </button>
+        )}
+
+        {/* 2. Memories Gallery (Display Only) */}
+        {memories.map(memory => (
+            <div 
+                key={memory.id}
+                className="group flex flex-col items-center gap-2 min-w-[72px] cursor-pointer animate-fade-in relative"
+            >
+                <div className="w-16 h-16 rounded-full p-[2px] bg-stone-200 group-hover:scale-105 transition-transform shadow-sm overflow-hidden relative">
+                    <img 
+                        src={memory.mediaUrl} 
+                        className="w-full h-full object-cover rounded-full border-2 border-white" 
+                        alt="Memória" 
+                        onError={(e) => {
+                            (e.target as HTMLImageElement).src = 'https://placehold.co/100x100?text=Error';
+                        }}
+                    />
+                    {memory.type === 'video' && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                            <Play size={16} className="text-white fill-current" />
+                        </div>
+                    )}
+                </div>
+                <span className="text-[11px] font-medium text-stone-600 truncate max-w-[80px] text-center px-1">
+                    {new Date(memory.date).toLocaleDateString(undefined, {day: '2-digit', month: '2-digit'})}
+                </span>
+                
+                {/* Delete Button (visible on hover) */}
+                <button 
+                    onClick={(e) => handleDeleteMemory(memory.id, e)}
+                    className="absolute top-0 right-0 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity scale-75 shadow-md"
+                >
+                    <Trash2 size={12} />
+                </button>
+            </div>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -156,14 +242,27 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
              {selectedDayHistory.length > 0 ? (
                <div className="space-y-3">
                  {selectedDayHistory.map(session => (
-                   <div key={session.id} className="bg-white p-4 rounded-xl shadow-sm flex justify-between items-center">
-                      <div>
-                        <p className="font-medium text-sage-900">{session.routineName}</p>
-                        <p className="text-xs text-stone-500 mt-1 flex items-center gap-1">
-                          <Check size={12} className="text-green-500"/> Completado
-                        </p>
+                   <div key={session.id} className="bg-white p-4 rounded-xl shadow-sm flex flex-col gap-2">
+                      <div className="flex justify-between items-center">
+                        <div>
+                            <p className="font-medium text-sage-900">{session.routineName}</p>
+                            <p className="text-xs text-stone-500 mt-1 flex items-center gap-1">
+                            <Check size={12} className="text-green-500"/> Completado
+                            </p>
+                        </div>
+                        <Badge color="green">{session.duration} min</Badge>
                       </div>
-                      <Badge color="green">{session.duration} min</Badge>
+                      
+                      {/* Show feedback summary if available */}
+                      {session.feedback && (
+                         <div className="mt-2 pt-2 border-t border-stone-50 flex gap-2 overflow-x-auto no-scrollbar">
+                            {session.feedback.responses.map((r, i) => (
+                                <span key={i} className="text-[10px] bg-stone-100 px-2 py-1 rounded-md text-stone-600 whitespace-nowrap">
+                                    {r.answer}
+                                </span>
+                            ))}
+                         </div>
+                      )}
                    </div>
                  ))}
                </div>
@@ -286,7 +385,6 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
                         <Lightbulb size={20} className="text-yellow-500" />
                         Entenda seu Plano
                      </div>
-                     {/* Chevron could go here */}
                   </button>
                   
                   {showInsights && (
@@ -302,22 +400,37 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
               </div>
           )}
 
-          {/* Weekly Mini Schedule (Mostra a semana selecionada no calendário) */}
+          {/* Weekly Schedule with Tabs */}
           <div className="space-y-3">
-             <div className="flex justify-between items-center">
-                <h4 className="text-sm font-bold text-stone-400 uppercase tracking-wider ml-1">
-                    Semana {selectedDayPlan?.weekLabel || 1}
-                </h4>
+             <div className="flex justify-between items-center overflow-x-auto pb-2 no-scrollbar gap-2">
+                {plan.weeks && plan.weeks.map((_, idx) => (
+                    <button
+                        key={idx}
+                        onClick={() => setActiveWeekTab(idx)}
+                        className={`
+                            px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors
+                            ${activeWeekTab === idx 
+                                ? 'bg-sage-600 text-white' 
+                                : 'bg-white border border-stone-200 text-stone-400 hover:text-stone-600'}
+                        `}
+                    >
+                        Semana {idx + 1}
+                    </button>
+                ))}
+                {!plan.weeks && (
+                    <span className="text-sm font-bold text-stone-400 uppercase tracking-wider ml-1">Semana Atual</span>
+                )}
              </div>
-             {/* Renderizar a semana correta baseada no weekLabel, ou a default schedule */}
-             {(plan.weeks && selectedDayPlan?.weekLabel ? plan.weeks[selectedDayPlan.weekLabel - 1] : plan.schedule).map((day, idx) => {
+             
+             {/* Render Weekly Items */}
+             {(plan.weeks ? plan.weeks[activeWeekTab] : plan.schedule).map((day, idx) => {
                const dayNames = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
                const isRest = day.activityType === 'Rest';
-               // Highlight selected day
-               const isSelected = selectedDateStr && new Date(selectedDateStr).getDay() === idx;
+               // Highlight selected day if it matches current viewed week view
+               const isSelected = selectedDateStr && new Date(selectedDateStr).getDay() === idx && (selectedDayPlan?.weekLabel === (activeWeekTab + 1));
 
                return (
-                 <div key={idx} className={`flex items-center gap-4 text-sm p-1 rounded-lg transition-colors ${isSelected ? 'bg-sage-50' : ''}`}>
+                 <div key={idx} className={`flex items-center gap-4 text-sm p-1 rounded-lg transition-colors ${isSelected ? 'bg-sage-50 border border-sage-100' : ''}`}>
                     <div className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold ${isRest ? 'bg-stone-100 text-stone-400' : 'bg-sage-100 text-sage-700'}`}>
                       {dayNames[idx]}
                     </div>
@@ -349,7 +462,6 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
                  <p className="text-stone-500 text-sm mb-4">Escolha o que você gostaria de fazer hoje em vez da programação original.</p>
                  
                  <div className="grid grid-cols-1 gap-3">
-                    {/* Rest Option */}
                     <button 
                        onClick={() => handleSwapPractice('Rest')}
                        className="flex items-center gap-4 p-4 rounded-xl border border-stone-200 hover:border-sage-400 hover:bg-stone-50 transition-all text-left group"
@@ -365,7 +477,6 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
 
                     <div className="my-2 border-t border-stone-100"></div>
 
-                    {/* Active Options */}
                     {swapOptions.map(opt => (
                        <button 
                          key={opt.label}

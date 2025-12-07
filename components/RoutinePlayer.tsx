@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Routine, Pose } from '../types';
 import { VideoPlayerToggle } from './VideoPlayerToggle';
@@ -75,11 +76,11 @@ export const RoutinePlayer: React.FC<RoutinePlayerProps> = ({ routine, onExit, o
         </div>
         <h2 className="text-4xl font-light text-sage-900 mb-2">Namastê</h2>
         <p className="text-stone-500 max-w-md mb-8">
-          Parabéns por completar seu fluxo de {routine.name}. Leve essa calma com você pelo resto do dia.
+          Parabéns por completar seu fluxo de {routine.name}. Vamos registrar como você se sente?
         </p>
         <div className="flex gap-4">
            <Button variant="outline" onClick={onExit}>Voltar ao Menu</Button>
-           <Button onClick={onComplete}>Concluir Prática</Button>
+           <Button onClick={onComplete}>Concluir & Dar Feedback</Button>
         </div>
       </div>
     );
