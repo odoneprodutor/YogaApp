@@ -71,7 +71,10 @@ export interface TrainingPlan {
   userId?: string; // Link plan to a user
   name: string;
   description: string;
-  schedule: PlanDay[]; // 7 items, index 0 is Sunday
+  schedule: PlanDay[]; // Fallback / Current Display Schedule
+  weeks?: PlanDay[][]; // Array of weekly schedules (e.g., 4 weeks)
+  durationWeeks?: number;
+  reasoning?: string[]; // Explicações do porquê este plano foi gerado
 }
 
 export interface Article {

@@ -1,8 +1,9 @@
 
+
 import React, { useState } from 'react';
 import { TrainingPlan, PlanDay } from '../types';
 import { Button, Card } from './ui';
-import { Save, X, Coffee, Zap, Edit3 } from 'lucide-react';
+import { Save, X, Coffee, Zap, Edit3, CalendarRange } from 'lucide-react';
 
 interface PlanEditorProps {
   initialPlan: TrainingPlan;
@@ -12,31 +13,47 @@ interface PlanEditorProps {
 
 export const PlanEditor: React.FC<PlanEditorProps> = ({ initialPlan, onSave, onCancel }) => {
   const [planName, setPlanName] = useState(initialPlan.name);
-  const [schedule, setSchedule] = useState<PlanDay[]>(initialPlan.schedule);
+  
+  // Initialize full weeks structure. Ensure it exists.
+  const initialWeeks = initialPlan.weeks || [initialPlan.schedule, initialPlan.schedule, initialPlan.schedule, initialPlan.schedule];
+  const [allWeeks, setAllWeeks] = useState<PlanDay[][]>(initialWeeks);
+  
+  const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
   const [activeDayIndex, setActiveDayIndex] = useState(1); // Start editing Monday (index 1) by default
 
   const weekDays = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
-  // Helper to update a specific field of a specific day
+  // Helper to update a specific field of a specific day in the CURRENT week
   const handleDayUpdate = (index: number, field: keyof PlanDay, value: any) => {
-    const newSchedule = [...schedule];
-    newSchedule[index] = { ...newSchedule[index], [field]: value };
+    const updatedWeeks = [...allWeeks];
+    const currentWeekSchedule = [...updatedWeeks[currentWeekIndex]];
     
-    // If switching to Rest, we might want to clear focus/description or set defaults
+    currentWeekSchedule[index] = { ...currentWeekSchedule[index], [field]: value };
+    
+    // Logic defaults
     if (field === 'activityType' && value === 'Rest') {
-       newSchedule[index].focus = 'Descanso e Recuperação';
-       newSchedule[index].description = 'Dia livre para recuperação física e mental.';
+       currentWeekSchedule[index].focus = 'Descanso e Recuperação';
+       currentWeekSchedule[index].description = 'Dia livre para recuperação física e mental.';
     }
-    // If switching to Active and fields are empty, set defaults
-    if (field === 'activityType' && value === 'Active' && !newSchedule[index].focus) {
-        newSchedule[index].focus = 'Foco Personalizado';
-        newSchedule[index].description = '';
+    if (field === 'activityType' && value === 'Active' && !currentWeekSchedule[index].focus) {
+        currentWeekSchedule[index].focus = 'Foco Personalizado';
+        currentWeekSchedule[index].description = '';
     }
 
-    setSchedule(newSchedule);
+    updatedWeeks[currentWeekIndex] = currentWeekSchedule;
+    setAllWeeks(updatedWeeks);
   };
 
-  const currentDay = schedule[activeDayIndex];
+  const currentDay = allWeeks[currentWeekIndex][activeDayIndex];
+
+  const handleSave = () => {
+      onSave({ 
+          ...initialPlan, 
+          name: planName, 
+          weeks: allWeeks,
+          schedule: allWeeks[0] // Ensure schedule is at least Week 1 for fallbacks
+      });
+  };
 
   return (
     <div className="pb-24 pt-8 px-4 max-w-4xl mx-auto animate-fade-in">
@@ -50,14 +67,14 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({ initialPlan, onSave, onC
         </div>
         <div className="flex gap-2">
           <Button variant="ghost" onClick={onCancel}>Cancelar</Button>
-          <Button onClick={() => onSave({ ...initialPlan, name: planName, schedule })}>
+          <Button onClick={handleSave}>
             <Save size={18} /> Salvar
           </Button>
         </div>
       </div>
 
       {/* Plan Name Input */}
-      <div className="mb-8 bg-white p-6 rounded-2xl shadow-sm border border-stone-100">
+      <div className="mb-6 bg-white p-6 rounded-2xl shadow-sm border border-stone-100">
         <label className="block text-xs font-bold text-stone-400 uppercase mb-2 tracking-wider">Nome da Jornada</label>
         <input 
           type="text" 
@@ -68,12 +85,35 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({ initialPlan, onSave, onC
         />
       </div>
 
+      {/* Week Selector */}
+      <div className="mb-6 overflow-x-auto pb-2">
+         <div className="flex gap-2">
+             {allWeeks.map((_, idx) => (
+                 <button
+                    key={idx}
+                    onClick={() => setCurrentWeekIndex(idx)}
+                    className={`
+                        px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap flex items-center gap-2
+                        ${currentWeekIndex === idx 
+                            ? 'bg-sage-600 text-white shadow-md' 
+                            : 'bg-white text-stone-600 border border-stone-200 hover:border-sage-300'
+                        }
+                    `}
+                 >
+                     <CalendarRange size={16} /> Semana {idx + 1}
+                 </button>
+             ))}
+         </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
         {/* Sidebar: Day Selector */}
         <div className="md:col-span-4 flex flex-col gap-2">
-           <h3 className="text-sm font-bold text-stone-500 uppercase mb-2 px-1">Programação Semanal</h3>
+           <h3 className="text-sm font-bold text-stone-500 uppercase mb-2 px-1">
+               Semana {currentWeekIndex + 1}
+           </h3>
            {weekDays.map((day, idx) => {
-             const dayData = schedule[idx];
+             const dayData = allWeeks[currentWeekIndex][idx];
              const isActive = activeDayIndex === idx;
              const isRest = dayData.activityType === 'Rest';
 
@@ -108,7 +148,7 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({ initialPlan, onSave, onC
             <div className="flex items-center justify-between mb-8 border-b border-stone-100 pb-6">
                <div>
                   <h3 className="text-2xl font-light text-sage-900">{weekDays[activeDayIndex]}</h3>
-                  <p className="text-stone-500 text-sm">Configure o objetivo para este dia da semana.</p>
+                  <p className="text-stone-500 text-sm">Semana {currentWeekIndex + 1}</p>
                </div>
                
                {/* Toggle Switch */}
@@ -161,11 +201,11 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({ initialPlan, onSave, onC
                  </div>
                  
                  <div>
-                   <label className="block text-xs font-bold text-sage-600 uppercase mb-2 tracking-wider">Descrição Detalhada</label>
+                   <label className="block text-xs font-bold text-sage-600 uppercase mb-2 tracking-wider">Descrição Detalhada / Notas</label>
                    <textarea 
                      value={currentDay.description || ''}
                      onChange={(e) => handleDayUpdate(activeDayIndex, 'description', e.target.value)}
-                     placeholder="Descreva o objetivo específico ou notas para este dia..."
+                     placeholder="Ex: Prática focada em aliviar o stress do trabalho..."
                      className="w-full p-4 bg-stone-50 border border-stone-200 rounded-xl focus:ring-2 focus:ring-sage-200 focus:outline-none h-40 resize-none text-stone-600 transition-shadow"
                    />
                  </div>

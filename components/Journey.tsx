@@ -1,9 +1,13 @@
+
+
+
+
 import React, { useState, useMemo } from 'react';
 import { UserPreferences, SessionRecord, TrainingPlan, PlanDay } from '../types';
 import { createPersonalizedPlan } from '../services/planEngine';
 import { Calendar } from './Calendar';
 import { Card, Badge, Button } from './ui';
-import { Calendar as CalendarIcon, Target, Trophy, Clock, Check, Edit3, Repeat, Coffee, Zap, X, Activity, Play, CheckCircle } from 'lucide-react';
+import { Calendar as CalendarIcon, Target, Trophy, Clock, Check, Edit3, Repeat, Coffee, Zap, X, Activity, Play, CheckCircle, Lightbulb, Info } from 'lucide-react';
 
 interface JourneyProps {
   preferences: UserPreferences;
@@ -19,6 +23,7 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
   const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date());
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(new Date().toISOString().split('T')[0]);
   const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
+  const [showInsights, setShowInsights] = useState(true);
 
   // Use custom plan if available, otherwise derive from goals
   const plan = useMemo(() => {
@@ -37,10 +42,40 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
   const getDayPlan = (dateStr: string) => {
     const date = new Date(dateStr);
     const dayOfWeek = date.getDay(); // 0-6
+    
+    // Calcular qual semana do plano estamos
+    // Se não tiver data de início, assume semana 1. Se tiver, calcula a diferença em dias.
+    let weekIndex = 0;
+    if (preferences.startDate && plan.weeks) {
+        const start = new Date(preferences.startDate);
+        // Reset hours to compare purely dates
+        start.setHours(0,0,0,0);
+        const current = new Date(dateStr);
+        current.setHours(0,0,0,0);
+        
+        const diffTime = current.getTime() - start.getTime();
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        
+        if (diffDays >= 0) {
+            weekIndex = Math.floor(diffDays / 7);
+            // Se passar do número de semanas do plano, repete a última ou volta pra primeira (cíclico)
+            // Aqui vamos fazer cíclico para o plano durar para sempre
+            weekIndex = weekIndex % plan.weeks.length;
+        }
+    }
+
+    // Se tiver suporte a semanas múltiplas, pega da semana correta, senão pega do schedule base
+    if (plan.weeks && plan.weeks.length > weekIndex) {
+        return {
+            ...plan.weeks[weekIndex][dayOfWeek],
+            weekLabel: weekIndex + 1 // Add visual indicator of which week it is
+        };
+    }
+    
     return plan.schedule[dayOfWeek];
   };
 
-  const selectedDayPlan = selectedDateStr ? getDayPlan(selectedDateStr) : null;
+  const selectedDayPlan: (PlanDay & { weekLabel?: number }) | null = selectedDateStr ? getDayPlan(selectedDateStr) : null;
   const isToday = selectedDateStr === new Date().toISOString().split('T')[0];
 
   const handleSwapPractice = (type: 'Active' | 'Rest', focus?: string) => {
@@ -49,6 +84,18 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
      const date = new Date(selectedDateStr);
      const dayIndex = date.getDay();
      
+     // Need to find which week index we are updating
+     let weekIndex = 0;
+     if (preferences.startDate && plan.weeks) {
+        const start = new Date(preferences.startDate);
+        start.setHours(0,0,0,0);
+        const current = new Date(selectedDateStr);
+        current.setHours(0,0,0,0);
+        const diffTime = current.getTime() - start.getTime();
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        if (diffDays >= 0) weekIndex = Math.floor(diffDays / 7) % plan.weeks.length;
+     }
+
      let newDay: PlanDay;
 
      if (type === 'Rest') {
@@ -67,7 +114,7 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
         };
      }
 
-     onUpdateDay(dayIndex, newDay);
+     onUpdateDay(dayIndex, newDay); // This currently only updates the active schedule (Week 1 usually)
      setIsSwapModalOpen(false);
   };
 
@@ -166,8 +213,9 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
 
                <div className="bg-sage-50 rounded-xl p-5 mb-6 relative">
                  <div className="flex justify-between items-start mb-2">
-                    <p className="text-xs font-bold text-sage-400 uppercase tracking-wider">
-                    {isToday ? 'Foco de Hoje' : 'Foco deste dia'}
+                    <p className="text-xs font-bold text-sage-400 uppercase tracking-wider flex items-center gap-2">
+                        {isToday ? 'Foco de Hoje' : 'Foco deste dia'}
+                        {selectedDayPlan?.weekLabel && <span className="text-sage-300 text-[10px] bg-white px-1.5 py-0.5 rounded-full border border-sage-100">Semana {selectedDayPlan.weekLabel}</span>}
                     </p>
                     {/* Swap Button */}
                     {selectedDateStr && (
@@ -226,21 +274,54 @@ export const Journey: React.FC<JourneyProps> = ({ preferences, history, customPl
                )}
              </div>
           </div>
+          
+          {/* Plan Insights / Reasoning Section */}
+          {plan.reasoning && plan.reasoning.length > 0 && (
+              <div className="bg-white rounded-2xl p-5 border border-stone-100 shadow-sm">
+                  <button 
+                     onClick={() => setShowInsights(!showInsights)}
+                     className="flex items-center justify-between w-full text-left mb-2"
+                  >
+                     <div className="flex items-center gap-2 text-sage-800 font-medium">
+                        <Lightbulb size={20} className="text-yellow-500" />
+                        Entenda seu Plano
+                     </div>
+                     {/* Chevron could go here */}
+                  </button>
+                  
+                  {showInsights && (
+                      <div className="animate-fade-in mt-3 space-y-3">
+                          {plan.reasoning.map((reason, idx) => (
+                              <div key={idx} className="flex gap-3 text-sm text-stone-600 bg-sage-50/50 p-3 rounded-lg">
+                                  <Info size={16} className="text-sage-500 flex-shrink-0 mt-0.5" />
+                                  <p>{reason}</p>
+                              </div>
+                          ))}
+                      </div>
+                  )}
+              </div>
+          )}
 
-          {/* Weekly Mini Schedule */}
+          {/* Weekly Mini Schedule (Mostra a semana selecionada no calendário) */}
           <div className="space-y-3">
              <div className="flex justify-between items-center">
-                <h4 className="text-sm font-bold text-stone-400 uppercase tracking-wider ml-1">Semana Típica</h4>
+                <h4 className="text-sm font-bold text-stone-400 uppercase tracking-wider ml-1">
+                    Semana {selectedDayPlan?.weekLabel || 1}
+                </h4>
              </div>
-             {plan.schedule.map((day, idx) => {
+             {/* Renderizar a semana correta baseada no weekLabel, ou a default schedule */}
+             {(plan.weeks && selectedDayPlan?.weekLabel ? plan.weeks[selectedDayPlan.weekLabel - 1] : plan.schedule).map((day, idx) => {
                const dayNames = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
                const isRest = day.activityType === 'Rest';
+               // Highlight selected day
+               const isSelected = selectedDateStr && new Date(selectedDateStr).getDay() === idx;
+
                return (
-                 <div key={idx} className="flex items-center gap-4 text-sm">
+                 <div key={idx} className={`flex items-center gap-4 text-sm p-1 rounded-lg transition-colors ${isSelected ? 'bg-sage-50' : ''}`}>
                     <div className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold ${isRest ? 'bg-stone-100 text-stone-400' : 'bg-sage-100 text-sage-700'}`}>
                       {dayNames[idx]}
                     </div>
-                    <div className="flex-1 border-b border-stone-100 pb-2">
+                    <div className="flex-1 border-b border-stone-100 pb-2 border-none">
                       <span className={isRest ? 'text-stone-400' : 'text-stone-700 font-medium'}>
                         {isRest ? 'Descanso' : day.focus}
                       </span>
