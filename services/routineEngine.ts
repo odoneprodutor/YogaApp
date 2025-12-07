@@ -1,15 +1,20 @@
 
-import { POSES } from '../constants';
-import { Pose, UserPreferences, Routine, Discomfort } from '../types';
+import { poseStore } from './poseStore';
+import { Pose, UserPreferences, Routine } from '../types';
+
+// Helper to get ALL poses from store instead of constants
+const getAvailablePoses = () => poseStore.getAll();
 
 export const generateRoutine = (prefs: UserPreferences): Routine => {
+  const ALL_POSES = getAvailablePoses();
+
   // 1. Filter Poses based on Difficulty
-  let availablePoses = POSES;
+  let availablePoses = ALL_POSES;
   
   if (prefs.level === 'Iniciante') {
-    availablePoses = POSES.filter(p => p.difficulty === 'Iniciante');
+    availablePoses = ALL_POSES.filter(p => p.difficulty === 'Iniciante');
   } else if (prefs.level === 'Intermediário') {
-    availablePoses = POSES.filter(p => p.difficulty !== 'Avançado');
+    availablePoses = ALL_POSES.filter(p => p.difficulty !== 'Avançado');
   }
   // Advanced users get everything
 
@@ -32,8 +37,6 @@ export const generateRoutine = (prefs: UserPreferences): Routine => {
     if (goalMatches) score += 5;
 
     // Benefit matching for DISCOMFORTS
-    // If user has 'Lombar' pain, prioritize poses that help 'Coluna' or 'Costas'
-    // If user has 'Pescoço', prioritize 'Pescoço'
     const discomfortMap: Record<string, string[]> = {
         'Lombar': ['Coluna', 'Costas', 'Alívio de Dor'],
         'Pescoço/Ombros': ['Pescoço', 'Ombros', 'Tensão'],
@@ -98,7 +101,7 @@ export const generateRoutine = (prefs: UserPreferences): Routine => {
   routinePoses.push(...cooldown);
 
   // D. Savasana (Always last)
-  const savasana = POSES.find(p => p.sanskritName === 'Savasana');
+  const savasana = ALL_POSES.find(p => p.sanskritName === 'Savasana');
   if (savasana && !usedIds.has(savasana.id)) {
     routinePoses.push(savasana);
   }

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { UserPreferences, Routine, ViewState, Difficulty, Goal, Duration, SessionRecord, TrainingPlan, Discomfort, PlanDay, User } from './types';
 import { generateRoutine } from './services/routineEngine';
@@ -9,6 +10,7 @@ import { Journey } from './components/Journey';
 import { PlanEditor } from './components/PlanEditor';
 import { RoutineEditor } from './components/RoutineEditor';
 import { AuthScreen } from './components/AuthScreen';
+import { LearningHub } from './components/LearningHub';
 import { Button, Card, Badge } from './components/ui';
 import { 
   LayoutDashboard, 
@@ -24,7 +26,8 @@ import {
   AlertCircle,
   ArrowRight,
   Check,
-  LogOut
+  LogOut,
+  BookOpen
 } from 'lucide-react';
 
 // Storage keys helper
@@ -574,6 +577,7 @@ const App: React.FC = () => {
       <main className="min-h-screen">
         {view === 'DASHBOARD' && renderDashboard()}
         {view === 'LIBRARY' && <PoseLibrary />}
+        {view === 'LEARNING' && <LearningHub />}
         {view === 'JOURNEY' && (
            <Journey 
              preferences={preferences} 
@@ -588,13 +592,21 @@ const App: React.FC = () => {
       </main>
 
       {/* Bottom Nav */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 px-6 py-4 flex justify-between items-center z-40 md:justify-center md:gap-16">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 px-2 py-4 flex justify-between items-center z-40 md:justify-center md:gap-8">
         <button 
           onClick={() => setView('DASHBOARD')}
-          className={`flex flex-col items-center gap-1 ${view === 'DASHBOARD' ? 'text-sage-600' : 'text-stone-400 hover:text-stone-600'}`}
+          className={`flex flex-col items-center gap-1 w-16 ${view === 'DASHBOARD' ? 'text-sage-600' : 'text-stone-400 hover:text-stone-600'}`}
         >
           <LayoutDashboard size={24} />
           <span className="text-[10px] font-medium tracking-wide">Hoje</span>
+        </button>
+
+        <button 
+          onClick={() => setView('JOURNEY')}
+          className={`flex flex-col items-center gap-1 w-16 ${view === 'JOURNEY' ? 'text-sage-600' : 'text-stone-400 hover:text-stone-600'}`}
+        >
+          <Map size={24} />
+          <span className="text-[10px] font-medium tracking-wide">Jornada</span>
         </button>
         
         <button 
@@ -605,16 +617,16 @@ const App: React.FC = () => {
         </button>
 
         <button 
-          onClick={() => setView('JOURNEY')}
-          className={`flex flex-col items-center gap-1 ${view === 'JOURNEY' ? 'text-sage-600' : 'text-stone-400 hover:text-stone-600'}`}
+          onClick={() => setView('LEARNING')}
+          className={`flex flex-col items-center gap-1 w-16 ${view === 'LEARNING' ? 'text-sage-600' : 'text-stone-400 hover:text-stone-600'}`}
         >
-          <Map size={24} />
-          <span className="text-[10px] font-medium tracking-wide">Jornada</span>
+          <BookOpen size={24} />
+          <span className="text-[10px] font-medium tracking-wide">Aprender</span>
         </button>
 
         <button 
           onClick={() => setView('LIBRARY')}
-          className={`flex flex-col items-center gap-1 ${view === 'LIBRARY' ? 'text-sage-600' : 'text-stone-400 hover:text-stone-600'}`}
+          className={`flex flex-col items-center gap-1 w-16 ${view === 'LIBRARY' ? 'text-sage-600' : 'text-stone-400 hover:text-stone-600'}`}
         >
           <Library size={24} />
           <span className="text-[10px] font-medium tracking-wide">Biblioteca</span>

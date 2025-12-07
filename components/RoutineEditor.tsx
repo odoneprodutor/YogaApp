@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Routine, Pose } from '../types';
-import { POSES } from '../constants';
+import { poseStore } from '../services/poseStore';
 import { Button, Card } from './ui';
 import { Play, ArrowUp, ArrowDown, Trash2, Plus, X, GripVertical, Minus } from 'lucide-react';
 
@@ -16,6 +16,9 @@ export const RoutineEditor: React.FC<RoutineEditorProps> = ({ routine, onSaveAnd
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null);
   const [selectedPoseIndex, setSelectedPoseIndex] = useState<number | null>(null);
+
+  // Get current library state for the Add Modal
+  const libraryPoses = poseStore.getAll();
 
   const totalDuration = poses.reduce((acc, curr) => acc + curr.durationDefault, 0);
 
@@ -221,7 +224,7 @@ export const RoutineEditor: React.FC<RoutineEditorProps> = ({ routine, onSaveAnd
               </button>
             </div>
             <div className="overflow-y-auto p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {POSES.map(pose => (
+              {libraryPoses.map(pose => (
                 <button 
                   key={pose.id}
                   onClick={() => addPose(pose)}

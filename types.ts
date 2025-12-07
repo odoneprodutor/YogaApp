@@ -74,4 +74,16 @@ export interface TrainingPlan {
   schedule: PlanDay[]; // 7 items, index 0 is Sunday
 }
 
-export type ViewState = 'AUTH' | 'ONBOARDING' | 'DASHBOARD' | 'PLAYER' | 'LIBRARY' | 'JOURNEY' | 'PLAN_EDITOR' | 'ROUTINE_EDITOR';
+export interface Article {
+  id: string;
+  title: string;
+  excerpt: string;
+  content: string[]; // Array of paragraphs
+  category: 'Filosofia' | 'Benefícios' | 'Inspiração' | 'Anatomia';
+  readTime: string;
+  imageUrl: string;
+  author: string;
+  isPremium?: boolean;
+}
+
+export type ViewState = 'AUTH' | 'ONBOARDING' | 'DASHBOARD' | 'PLAYER' | 'LIBRARY' | 'JOURNEY' | 'PLAN_EDITOR' | 'ROUTINE_EDITOR' | 'LEARNING';
